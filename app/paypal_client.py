@@ -35,6 +35,7 @@ class PayPalClient:
         self._token: str | None = None
         self._token_exp = 0.0
         self._lock = asyncio.Lock()
+        self._mock_orders: dict[str, dict] = {}
 
     @property
     def mode(self) -> str:
@@ -126,14 +127,37 @@ class PayPalClient:
                          {"send_to_recipient": True}, request_id=f"inv-send-{proposal_id}")
         return {"id": inv_id, "status": "SENT"}
 
-    # ---- Orders (agent-to-agent / checkout) -----------------------------
-    async def create_order(self, ref: str, amount: str, currency: str, description: str) -> dict:
-        body = {"intent": "CAPTURE",
-                "purchase_units": [{"reference_id": ref[:256], "description": description[:127],
-                                    "amount": {"currency_code": currency, "value": amount}}]}
+    # ---- Orders (agent-to-agent settlement) -----------------------------
+    # Mock mode keeps orders in memory and simulates the payer's approval (status APPROVED).
+    async def create_order(self, ref: str, amount: str, currency: str, description: str,
+                           payee_email: str | None = None) -> dict:
+        unit = {"reference_id": ref[:256], "description": description[:127],
+                "amount": {"currency_code": currency, "value": amount}}
+        if payee_email:
+            unit["payee"] = {"email_address": payee_email}
+        body = {"intent": "CAPTURE", "purchase_units": [unit]}
         if not self.live:
-            return {"id": f"MOCK-ORDER-{uuid.uuid4().hex[:10].upper()}", "status": "CREATED", "mock": True}
+            oid = f"MOCK-ORDER-{uuid.uuid4().hex[:10].upper()}"
+            self._mock_orders[oid] = {"id": oid, "status": "APPROVED", "purchase_units": [unit], "links": [],
+                                      "mock": True}
+            return self._mock_orders[oid]
         return await self._call("POST", "/v2/checkout/orders", body, request_id=f"order-{ref}")
+
+    async def get_order(self, order_id: str) -> dict:
+        if not self.live:
+            if order_id not in self._mock_orders:
+                raise PayPalError(404, {"name": "RESOURCE_NOT_FOUND"})
+            return self._mock_orders[order_id]
+        return await self._call("GET", f"/v2/checkout/orders/{order_id}")
+
+    async def capture_order(self, order_id: str, proposal_id: str) -> dict:
+        if not self.live:
+            order = self._mock_orders[order_id]
+            order["status"] = "COMPLETED"
+            return {"id": order_id, "status": "COMPLETED", "purchase_units": [{"payments": {"captures": [
+                {"id": f"MOCK-CAPTURE-{uuid.uuid4().hex[:10].upper()}", "status": "COMPLETED"}]}}], "mock": True}
+        return await self._call("POST", f"/v2/checkout/orders/{order_id}/capture", {},
+                                request_id=f"capture-{proposal_id}")
 
     # ---- Webhooks -------------------------------------------------------
     async def verify_webhook(self, headers: dict, event: dict) -> bool:

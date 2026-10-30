@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "PayWarden — zero-trust payment firewall",
-    "description": "End-to-end, self-checking tour of the PayWarden API: STEP-UP and dual-control approvals with single-use TOTP, attacks being denied, security controls, the MCP agent channel and the audit chain.\n\nRun the whole collection against a server in demo mode (`PAYWARDEN_DEMO_MODE=true`) with the `PayWarden — local` environment. Folders 1 and 2 each wait up to 30 s for a fresh TOTP window, because codes are single-use (a full run takes under a minute). Amounts and payees are randomised per run; repeated runs on the same database within 24 h can eventually hit the agent's rolling daily limit (LIM-04), which is the control working as designed.",
+    "description": "End-to-end, self-checking tour of the PayWarden API: STEP-UP and dual-control approvals with single-use TOTP, attacks being denied, security controls, the MCP agent channel, agent-to-agent PayPal Orders settlement and the audit chain.\n\nRun the whole collection against a server in demo mode (`PAYWARDEN_DEMO_MODE=true`) with the `PayWarden — local` environment. Folders 1 and 2 each wait up to 30 s for a fresh TOTP window, because codes are single-use (a full run takes under a minute). Amounts and payees are randomised per run; repeated runs on the same database within 24 h can eventually hit the agent's rolling daily limit (LIM-04), which is the control working as designed.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -37,7 +37,8 @@
                   "pm.collectionVariables.set(\"run\", r);",
                   "pm.collectionVariables.set(\"amtSmall\", `${100 + r % 800}.${String(r % 100).padStart(2, \"0\")}`);",
                   "pm.collectionVariables.set(\"amtAgent\", `${100 + (r >> 3) % 800}.${String((r >> 2) % 100).padStart(2, \"0\")}`);",
-                  "pm.collectionVariables.set(\"amtHigh\", `${5001 + r % 999}.00`);"
+                  "pm.collectionVariables.set(\"amtHigh\", `${5001 + r % 999}.00`);",
+                  "pm.collectionVariables.set(\"amtOrder\", `${100 + (r >> 5) % 800}.00`);"
                 ]
               }
             },
@@ -1417,7 +1418,395 @@
       ]
     },
     {
-      "name": "6 · Audit",
+      "name": "6 · Agent-to-agent (PayPal Orders)",
+      "description": "A seller agent issues a PayPal Order; the buyer agent pays it through the firewall. Amount and payee come from PayPal, not from the agent.",
+      "item": [
+        {
+          "name": "Seller agent creates quote + PayPal Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/demo/a2a/quote",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "demo",
+                "a2a",
+                "quote"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{agentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seller_name\": \"Postman Seller {{run}}\",\n  \"seller_email\": \"seller.{{run}}@example.com\",\n  \"amount\": \"{{amtOrder}}\",\n  \"currency\": \"USD\",\n  \"description\": \"Sensor kit\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const q = pm.response.json();",
+                  "pm.collectionVariables.set(\"orderId\", q.order_id);",
+                  "pm.collectionVariables.set(\"quoteJson\", JSON.stringify(q.quote).slice(1, -1));",
+                  "pm.test(\"quote names the order\", () => pm.expect(q.quote).to.include(q.order_id));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Buyer agent pays order → STEP_UP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/agent/pay-order",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "agent",
+                "pay-order"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{agentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_id\": \"{{orderId}}\",\n  \"payee_name\": \"Postman Seller {{run}}\",\n  \"source_document\": \"{{quoteJson}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const p = pm.response.json();",
+                  "pm.collectionVariables.set(\"p5Id\", p.id);",
+                  "pm.test(\"order action, waits for a human\", () => {",
+                  "  pm.expect(p.action).to.eql(\"order\");",
+                  "  pm.expect(p.status).to.eql(\"PENDING\");",
+                  "});",
+                  "pm.test(\"amount taken from PayPal\", () => pm.expect(p.amount).to.eql(pm.collectionVariables.get(\"amtOrder\")));",
+                  "pm.test(\"references the PayPal order\", () => pm.expect(p.paypal_ref).to.eql(pm.collectionVariables.get(\"orderId\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Operator loads binding",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/proposals/{{p5Id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "proposals",
+                "{{p5Id}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{makerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.collectionVariables.set(\"p5Binding\", pm.response.json().binding);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get checker code",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/demo/totp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "demo",
+                "totp"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{makerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.collectionVariables.set(\"checkerCode2\", pm.response.json().checker);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Approve as checker → order captured",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/proposals/{{p5Id}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "proposals",
+                "{{p5Id}}",
+                "approve"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{checkerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"totp\": \"{{checkerCode2}}\",\n  \"binding\": \"{{p5Binding}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test(\"captured\", () => pm.expect(pm.response.json().status).to.eql(\"EXECUTED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pay the same order again → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/agent/pay-order",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "agent",
+                "pay-order"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{agentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_id\": \"{{orderId}}\",\n  \"payee_name\": \"Postman Seller {{run}}\",\n  \"source_document\": \"{{quoteJson}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Doctored quote (payee swapped) → DENY (AI-04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/demo/a2a/quote",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "demo",
+                "a2a",
+                "quote"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{agentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seller_name\": \"Postman Seller {{run}}\",\n  \"seller_email\": \"seller.{{run}}@example.com\",\n  \"amount\": \"77.00\",\n  \"currency\": \"USD\",\n  \"description\": \"Cables\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Creates a fresh order, then submits it with a quote whose payee email was swapped."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const q = pm.response.json();",
+                  "const doctored = q.quote.replace(/seller\\.[0-9]+@example\\.com/, \"attacker@evil.example\");",
+                  "pm.sendRequest({",
+                  "  url: pm.environment.get(\"baseUrl\") + \"/api/agent/pay-order\", method: \"POST\",",
+                  "  header: {\"Content-Type\": \"application/json\", \"Authorization\": \"Bearer \" + pm.environment.get(\"agentToken\")},",
+                  "  body: {mode: \"raw\", raw: JSON.stringify({order_id: q.order_id, payee_name: \"Postman Seller \" + pm.collectionVariables.get(\"run\"),",
+                  "                                           source_document: doctored})}",
+                  "}, (err, res) => {",
+                  "  pm.test(\"doctored quote denied by provenance (AI-04)\", () => {",
+                  "    pm.expect(err).to.be.null;",
+                  "    pm.expect(res.json().verdict).to.eql(\"DENY\");",
+                  "    pm.expect(res.json().controls).to.include(\"AI-04\");",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7 · Audit",
       "description": "The hash-chained, HMAC-signed audit log verifies end to end.",
       "item": [
         {
@@ -1521,6 +1910,30 @@
     },
     {
       "key": "p4Id",
+      "value": ""
+    },
+    {
+      "key": "amtOrder",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "quoteJson",
+      "value": ""
+    },
+    {
+      "key": "p5Id",
+      "value": ""
+    },
+    {
+      "key": "p5Binding",
+      "value": ""
+    },
+    {
+      "key": "checkerCode2",
       "value": ""
     }
   ]

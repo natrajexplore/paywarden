@@ -46,7 +46,7 @@ class Mandate:
     daily_limit: Decimal = Decimal("25000.00")          # rolling 24h -> DENY beyond
     max_txn_per_hour: int = 5
     currencies: tuple = ("USD", "EUR", "GBP", "CAD", "AUD", "INR")
-    actions: tuple = ("payout", "invoice")
+    actions: tuple = ("payout", "invoice", "order")
     purposes: tuple = ("contractor_services", "freelance_work", "supplies", "consulting", "refund")
 
 
@@ -199,7 +199,8 @@ class PolicyEngine:
             d.escalate("STEP_UP", f"Amount > {m.per_txn_auto_limit} requires MFA approval", "LIM-03", 15)
 
         now = time.time()
-        day = [h for h in history if now - h["ts"] < 86400 and h["status"] in ("EXECUTED", "PENDING", "APPROVED")]
+        committed = ("EXECUTED", "PENDING", "APPROVED", "AWAITING_PAYER")
+        day = [h for h in history if now - h["ts"] < 86400 and h["status"] in committed]
         hour = [h for h in day if now - h["ts"] < 3600]
         day_total = sum((Decimal(h["amount"]) for h in day if h["currency"] == p.currency), Decimal("0"))
         if day_total + amt > m.daily_limit:

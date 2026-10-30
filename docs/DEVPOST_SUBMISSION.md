@@ -25,7 +25,7 @@ FastAPI (Python) · PayPal REST APIs on sandbox — OAuth2, Payouts, Invoicing v
 - **PayPal Developer Platform (sandbox)** — Payouts, Invoicing, Orders, Webhooks.
 - **AG Grid Community** — proposal queue and audit trail grids.
 - **Render** — hosting (render.yaml blueprint).
-- **Postman / Newman** — a self-checking API collection (27 requests, 65 assertions) that also runs in CI.
+- **Postman / Newman** — a self-checking API collection (34 requests, 78 assertions) that also runs in CI.
 
 ## Challenges
 Making the AI genuinely useful while assuming it can be manipulated. The answer was defence in
@@ -44,8 +44,7 @@ Agentic commerce needs the same primitives as network security: identity for age
 mandates, a policy decision point, and immutable logs.
 
 ## What's next
-Per-agent mandates for MCP clients (the MCP server already ships: any agent can propose payments through the firewall, propose-only); agent-to-agent settlement via
-Orders; official OFAC/UN/EU list ingestion; SSO + FIDO2 for operators; SIEM export.
+Per-agent mandates for MCP clients (the MCP server and agent-to-agent Orders settlement already ship); official OFAC/UN/EU list ingestion; SSO + FIDO2 for operators; SIEM export.
 
 ## Links
 - Repo: https://github.com/natrajexplore/paywarden (MIT)
