@@ -34,6 +34,9 @@ DATA = Path(__file__).resolve().parent.parent.parent / "data"
 
 ORDER = {"ALLOW": 0, "STEP_UP": 1, "DUAL_CONTROL": 2, "DENY": 3}
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+# Labelled parties in the source document are screened too, so a payee name supplied by the agent
+# ("Goods") cannot hide the real counterparty ("Seller: Darkwave Holdings").
+PARTY_LINE = re.compile(r"(?im)^\s*(?:from|payee|bill from|contractor|vendor|supplier|seller)\s*[:\-]\s*(.+?)\s*$")
 
 
 @dataclass
@@ -171,7 +174,8 @@ class PolicyEngine:
                 d.escalate("DENY", "Payee email does not appear in source document", "AI-04", 70)
 
         # 5. Sanctions screening (OFAC / UN / EU style, fuzzy)
-        score, hit = self.screen_name(p.payee_name)
+        names = [p.payee_name, *(m.group(1) for m in PARTY_LINE.finditer(p.source_text))]
+        score, hit = max((self.screen_name(n) for n in names), key=lambda r: r[0])
         if score >= 0.88:
             d.escalate("DENY", f"Sanctions match {score:.2f} vs {hit} — block & report", "AML-01", 100)
         elif score >= 0.75:
@@ -199,7 +203,7 @@ class PolicyEngine:
             d.escalate("STEP_UP", f"Amount > {m.per_txn_auto_limit} requires MFA approval", "LIM-03", 15)
 
         now = time.time()
-        committed = ("EXECUTED", "PENDING", "APPROVED", "AWAITING_PAYER")
+        committed = ("EXECUTED", "PENDING", "APPROVED", "AWAITING_PAYER", "EXECUTING", "CAPTURE_PENDING")
         day = [h for h in history if now - h["ts"] < 86400 and h["status"] in committed]
         hour = [h for h in day if now - h["ts"] < 3600]
         day_total = sum((Decimal(h["amount"]) for h in day if h["currency"] == p.currency), Decimal("0"))

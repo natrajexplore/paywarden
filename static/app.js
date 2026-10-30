@@ -84,6 +84,7 @@ async function verifyChain() {
 }
 
 function showDetail(p) {
+  if (!current || current.id !== p.id) $("order-msg").textContent = "";  // no stale messages across proposals
   current = p;
   $("empty").hidden = true; $("d-body").hidden = false;
   const d = p.decision;
@@ -128,8 +129,12 @@ async function capture() {
     const r = await api(`/api/proposals/${current.id}/capture`, { method: "POST", body: "{}" }, $("op2").value);
     rememberPayerLink(r);
     await refresh();
-    $("order-msg").textContent = r.status === "EXECUTED" ? "Captured on PayPal."
-      : "The payer has not approved yet. Open the PayPal link, then capture again.";
+    $("order-msg").textContent = {
+      EXECUTED: "Captured on PayPal.",
+      CAPTURE_PENDING: "Captured, but PayPal has not settled the funds yet.",
+      PENDING: "Policy now needs another approval: approve it again with the other operator.",
+    }[r.status] || "The payer has not approved yet. Open the PayPal link, then capture again.";
+    if (r.status === "PENDING") $("approve-msg").textContent = "Re-check before capture raised the approval requirement.";
   } catch (e) { await refresh().catch(() => {}); $("order-msg").textContent = "✖ " + e.message; }
 }
 

@@ -245,7 +245,7 @@ flowchart LR
 | `propose_payment` | Propose one payout or invoice. The original source document is required, and the amount and payee must appear in it. |
 | `analyse_document` | Let PayWarden's own agent read a document and propose the payments in it |
 | `pay_order` | Pay a seller agent's PayPal Order (see [agent-to-agent payments](#agent-to-agent-payments-paypal-orders)) |
-| `get_proposal_status` | PENDING / AWAITING_PAYER / EXECUTED (with PayPal ref) / DENIED / REJECTED / FAILED, with reasons |
+| `get_proposal_status` | PENDING / AWAITING_PAYER / CAPTURE_PENDING / EXECUTED (with PayPal ref) / DENIED / REJECTED / FAILED, with reasons |
 | `get_mandate` | The agent's spend limits, currencies and purposes |
 
 **By design there is no approve tool.** The MCP server holds a *propose-only* agent credential
@@ -317,6 +317,17 @@ sequenceDiagram
   still waiting, the proposal moves to `AWAITING_PAYER` with the PayPal approval link; once the payer
   approves, an operator calls `POST /api/proposals/{id}/capture`. Agents cannot capture.
 - **Paid once:** a completed order is refused (409), and captures are idempotent.
+
+- **One purchase unit only:** capturing an order pays every unit on it, so orders with more than
+  one unit are refused rather than partly checked.
+- **Status after capture:** `EXECUTED` only when PayPal reports the capture `COMPLETED`;
+  `CAPTURE_PENDING` while PayPal holds the funds; `FAILED` if declined, voided or completed elsewhere.
+
+> **Who creates the order (live mode).** PayPal lets only the app that created an order read and
+> capture it. So in live mode the seller's order must be created **through PayWarden's PayPal app**,
+> with PayWarden acting as the marketplace platform and the seller as the order's payee. That is what
+> the demo seller endpoint does. An order a seller creates with its own PayPal app cannot be read or
+> captured by PayWarden; supporting that needs PayPal partner/platform onboarding (on the roadmap).
 
 Try it in demo mode: `POST /api/demo/a2a/quote` plays the seller agent and returns a quote.
 Mock mode simulates the payer's approval.
@@ -542,7 +553,8 @@ tests/               Unit + end-to-end tests
 **Roadmap**
 
 1. Per-agent mandates, so each MCP client gets its own limits and credential.
-2. Live sandbox verification of the payer-approval step for agent-to-agent Orders.
+2. Live sandbox verification of the payer-approval step for agent-to-agent Orders, and PayPal
+   partner onboarding so sellers can use their own PayPal apps.
 3. Official OFAC SDN / UN / EU list ingestion with transliteration-aware matching.
 4. OIDC/SAML SSO with FIDO2/WebAuthn and role-based access.
 5. Keys in a KMS/HSM with envelope encryption and rotation.
