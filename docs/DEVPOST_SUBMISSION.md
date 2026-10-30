@@ -32,8 +32,11 @@ depth: no single control (not even the injection scanner) is trusted alone — p
 policy and humans sit behind it.
 
 ## Accomplishments
-A working end-to-end flow with 29 automated tests, including tamper detection on the audit chain
-and a live prompt-injection attack being blocked.
+A working end-to-end flow with 50 automated tests, including tamper detection on the audit chain
+and a live prompt-injection attack being blocked. Banking-grade hardening on top: PII redaction
+before any data reaches the LLM, card numbers refused outright, per-operator credentials with
+single-use MFA codes and lockout, and fail-closed production configuration. CI fails the build on
+SAST (bandit) or known-CVE (pip-audit) findings.
 
 ## What we learned
 Agentic commerce needs the same primitives as network security: identity for agents, scoped

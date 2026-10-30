@@ -16,4 +16,8 @@ rights to; screen recording of your own app is fine).
 | 2:20–2:35 | Audit grid → click **Audit chain: VALID** | "Every decision is in a hash-chained, signed audit log. Change one record and verification breaks." |
 | 2:35–2:45 | Compliance matrix scroll → repo URL | "Aligned with PCI DSS, GLBA, OFAC, FATF and PSD2 controls. Open source, MIT. PayWarden — let agents pay, safely." |
 
+**Single-use codes:** each TOTP code works once per operator. Scenario 1 and scenario 3 are both
+maker approvals, so wait for the maker's code to change (up to 30 s) before approving scenario 3,
+or show scenarios 2, 4 and 5 in between. The checker's code is separate and unaffected.
+
 Recording tips: 1080p, browser zoom 110%, hide bookmarks bar, pre-run nothing (reset `data/paywarden.db`), rehearse twice, keep cursor movements slow.
