@@ -1,17 +1,11 @@
 [project]
 name = "paywarden"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Zero-trust payment firewall for AI agents on PayPal (sandbox)"
 readme = "README.md"
 authors = [
     { email = "natrajexplore@gmail.com" }
 ]
 requires-python = ">=3.11"
+# Runtime dependencies are pinned in requirements.txt (used by Docker, Render and CI).
 dependencies = []
-
-[project.scripts]
-paywarden = "paywarden:main"
-
-[build-system]
-requires = ["uv_build>=0.12.13,<0.13.0"]
-build-backend = "uv_build"

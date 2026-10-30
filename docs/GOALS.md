@@ -60,15 +60,15 @@ financial control or failing an audit.
 
 | # | Must-have (Stage-1 pass + core score) | Status |
 |---|---|---|
-| G1 | Real PayPal **sandbox** integration: OAuth2, Payouts, Invoicing (create + send), Orders, Webhook signature verification | scaffolded |
-| G2 | AI is central: Claude reads unstructured invoices, extracts payee/amount, proposes PayPal actions via tool use | scaffolded |
+| G1 | Real PayPal **sandbox** integration: OAuth2, Payouts, Invoicing (create + send), Orders, Webhook signature verification | done in code (Orders: client only); **live sandbox run pending** |
+| G2 | AI is central: Claude reads unstructured invoices, extracts payee/amount, proposes PayPal actions via tool use | done in code (with PII redaction); **live Claude run pending** |
 | G3 | Agent never holds PayPal credentials — all actions pass the Policy Enforcement Point | done in code |
-| G4 | Controls: spend mandates, velocity, sanctions screening, structuring detection, injection defence, duplicates | done in code |
-| G5 | Human-in-the-loop: TOTP step-up + maker-checker for high-value | done in code |
+| G4 | Controls: spend mandates, velocity, sanctions screening, structuring detection, injection defence, duplicates | done + hardened (PCI-01, redaction, fail-closed config) |
+| G5 | Human-in-the-loop: TOTP step-up + maker-checker for high-value | done (per-operator credentials, single-use codes, lockout) |
 | G6 | Tamper-evident audit log with `/api/audit/verify` | done in code |
-| G7 | Polished dashboard (AG Grid) — complete product experience | done in code |
-| G8 | Public GitHub repo with MIT LICENSE visible in About, full run instructions, `.env.example` | to publish |
-| G9 | Runs for judges with **zero keys** (mock mode) *and* with sandbox keys (live mode) | done in code |
+| G7 | Polished dashboard (AG Grid) — complete product experience | done in code; browser click-through pending |
+| G8 | Public GitHub repo with MIT LICENSE visible in About, full run instructions, `.env.example` | done — public, MIT detected, CI green |
+| G9 | Runs for judges with **zero keys** (mock mode) *and* with sandbox keys (live mode) | mock mode verified; live mode pending; Render deploy pending |
 | G10 | < 3 min YouTube demo, public, no copyrighted music | to record |
 
 | Stretch (prize multipliers) | Prize targeted |
@@ -107,12 +107,12 @@ financial control or failing an audit.
 - [ ] Uses the PayPal developer platform **sandbox** + an AI model (Claude) — PayPal integration is central
 - [ ] Project newly created during the Submission Period (started 30 Oct 2026)
 - [ ] Text description of features & functionality
-- [ ] Functional demo: README setup/run instructions **and/or** hosted URL (no mockups)
-- [ ] Public repo on GitHub with an **open source license detectable in the About section**
+- [x] Functional demo: README setup/run instructions **and/or** hosted URL (no mockups) — README verified; hosted URL pending
+- [x] Public repo on GitHub with an **open source license detectable in the About section**
 - [ ] Demo video < 3 min, on YouTube, public, shows it working, **no third-party trademarks or copyrighted music** without permission
 - [ ] Tools section: name the AI model/services and how they are used
 - [ ] All materials in English
-- [ ] Sandbox credentials / test instructions for judges in README (never commit real secrets)
+- [x] Sandbox credentials / test instructions for judges in README (never commit real secrets)
 - [ ] Third-party APIs used within their terms (PayPal, Anthropic, AG Grid Community, Render)
 - [ ] Original work, solely owned; open-source deps used under their licenses
 - [ ] Eligibility: individual of age of majority, resident of India (not an excluded jurisdiction); not a PayPal/Devpost employee or judge-affiliated
