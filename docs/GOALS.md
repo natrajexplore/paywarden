@@ -77,7 +77,7 @@ financial control or failing an audit.
 | S2 AG Grid risk dashboard with row grouping/conditional styling | Best Use of AG Grid |
 | S3 Agent-to-agent payment flow (buyer agent ⇄ seller agent settle via Orders) | Best Use of Agentic Commerce |
 | S4 Expose PayWarden as an MCP server so *any* agent (Claude Desktop, Cursor) gets the firewall — **done** (`paywarden_mcp/`, propose-only) | Most Creative / Best PayPal + AI |
-| S5 Postman collection for the API | Postman ecosystem |
+| S5 Postman collection for the API — **done** (`postman/`, 27 requests / 65 assertions, runs in CI via Newman) | Postman ecosystem |
 
 ## 5. Judging criteria → how we score (all equally weighted)
 

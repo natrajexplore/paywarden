@@ -25,6 +25,7 @@ FastAPI (Python) · PayPal REST APIs on sandbox — OAuth2, Payouts, Invoicing v
 - **PayPal Developer Platform (sandbox)** — Payouts, Invoicing, Orders, Webhooks.
 - **AG Grid Community** — proposal queue and audit trail grids.
 - **Render** — hosting (render.yaml blueprint).
+- **Postman / Newman** — a self-checking API collection (27 requests, 65 assertions) that also runs in CI.
 
 ## Challenges
 Making the AI genuinely useful while assuming it can be manipulated. The answer was defence in

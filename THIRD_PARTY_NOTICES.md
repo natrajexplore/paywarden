@@ -40,7 +40,8 @@ Installed on the agent's machine, not in the Docker image.
 ## Development and CI only (`requirements-dev.txt`)
 
 pytest (MIT), bandit (Apache-2.0) and pip-audit (Apache-2.0) are used for testing and scanning.
-They are not shipped in the Docker image.
+They are not shipped in the Docker image. CI also runs the Postman collection with Newman
+(Apache-2.0), fetched with `npx` at test time and not redistributed.
 
 ## Fonts
 
