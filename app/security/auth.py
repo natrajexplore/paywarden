@@ -41,6 +41,16 @@ def require_operator(authorization: str = Header(default="")) -> str:
     return who
 
 
+def require_agent_or_operator(authorization: str = Header(default="")) -> str:
+    """For propose/read routes. An AI agent gets the identity "agent": it can propose and read
+    status, but every approval, rejection, audit and demo-code route uses require_operator,
+    which never accepts the agent token (OWASP LLM06 excessive agency; four-eyes)."""
+    token = authorization.removeprefix("Bearer ").strip().encode()
+    if hmac.compare_digest(token, settings.agent_token.encode()):
+        return "agent"
+    return require_operator(authorization)
+
+
 def locked(operator: str) -> bool:
     with _lock:
         return _locked_until.get(operator, 0) > time.time()

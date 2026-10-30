@@ -13,3 +13,5 @@ data/*.db
 data/*.db-*
 *.zip
 tests
+paywarden_mcp
+requirements-mcp.txt

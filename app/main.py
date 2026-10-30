@@ -104,7 +104,7 @@ def demo_totp():
     return {op: pyotp.TOTP(s).now() for op, s in settings.operator_totp.items()}
 
 
-@app.get("/api/policy", dependencies=[Depends(auth.require_operator)])
+@app.get("/api/policy", dependencies=[Depends(auth.require_agent_or_operator)])
 def policy():
     m = pdp.mandate
     return {"agent_id": m.agent_id, "per_txn_auto_limit": str(m.per_txn_auto_limit),
@@ -113,38 +113,84 @@ def policy():
             "currencies": m.currencies, "purposes": m.purposes}
 
 
+AGENT_VIEW = ("id", "ts", "action", "payee_masked", "amount", "currency", "verdict", "risk", "status",
+              "paypal_ref")
+
+
+def agent_view(row: dict) -> dict:
+    """Least privilege for AI agents: no approval binding, approver list or AI summary."""
+    out = {k: row[k] for k in AGENT_VIEW}
+    out["reasons"], out["controls"] = row["decision"]["reasons"], row["decision"]["controls"]
+    out["approvals_required"] = auth.required_approvers(row["verdict"])
+    return out
+
+
+async def decide(raw: dict, source_text: str, summary: str, channel: str, submitted_by: str) -> dict | None:
+    """Every proposal, from any channel, takes this single path through the PDP."""
+    try:
+        p = Proposal(
+            action=str(raw.get("action", "")), payee_email=str(raw.get("payee_email", "")).strip(),
+            payee_name=str(raw.get("payee_name", ""))[:140], amount=str(raw.get("amount", "")),
+            currency=str(raw.get("currency", "")).upper(), purpose=str(raw.get("purpose", "")),
+            country=str(raw.get("country", "US")).upper()[:2], note=str(raw.get("note", ""))[:300],
+            source_text=source_text, agent_id=pdp.mandate.agent_id,
+        )
+    except Exception:  # malformed tool call -> drop, but log
+        store.audit.append("pep", "PROPOSAL_MALFORMED", {"raw_keys": sorted(raw.keys()), "channel": channel})
+        return None
+    p.payee_key = store.payee_key(p.payee_email) if p.payee_email else ""
+    decision = pdp.evaluate(p, store.history(p.agent_id)).to_dict()
+    row = store.create(p, decision, auth.binding_digest, summary)
+    store.audit.append("pep", "POLICY_DECISION",
+                       {"proposal": row["id"], "verdict": decision["verdict"],
+                        "risk": decision["risk_score"], "controls": decision["controls"],
+                        "amount": p.amount, "currency": p.currency, "payee": row["payee_masked"],
+                        "channel": channel, "submitted_by": submitted_by})
+    if decision["verdict"] == "ALLOW":
+        row = await execute(row["id"], "pep:auto")
+    return row
+
+
 @app.post("/api/agent/analyse")
-async def analyse(body: AnalyseIn, operator: str = Depends(auth.require_operator)):
+async def analyse(body: AnalyseIn, principal: str = Depends(auth.require_agent_or_operator)):
     result = await agent.analyse(body.document)
+    channel = "mcp" if principal == "agent" else "dashboard"
     store.audit.append("ai-agent", "AGENT_ANALYSED",
                        {"engine": result["engine"], "proposals": len(result["proposals"]),
-                        "submitted_by": operator, "llm_egress": result.get("llm_egress", False),
+                        "submitted_by": principal, "channel": channel,
+                        "llm_egress": result.get("llm_egress", False),
                         "redaction": settings.redaction_level, "redacted": result.get("redactions", {})})
     out = []
     for raw in result["proposals"]:
-        try:
-            p = Proposal(
-                action=str(raw.get("action", "")), payee_email=str(raw.get("payee_email", "")).strip(),
-                payee_name=str(raw.get("payee_name", ""))[:140], amount=str(raw.get("amount", "")),
-                currency=str(raw.get("currency", "")).upper(), purpose=str(raw.get("purpose", "")),
-                country=str(raw.get("country", "US")).upper()[:2], note=str(raw.get("note", ""))[:300],
-                source_text=body.document, agent_id=pdp.mandate.agent_id,
-            )
-        except Exception:  # malformed tool call -> drop, but log
-            store.audit.append("pep", "PROPOSAL_MALFORMED", {"raw_keys": sorted(raw.keys())})
-            continue
-        p.payee_key = store.payee_key(p.payee_email) if p.payee_email else ""
-        decision = pdp.evaluate(p, store.history(p.agent_id)).to_dict()
-        row = store.create(p, decision, auth.binding_digest, result["summary"])
-        store.audit.append("pep", "POLICY_DECISION",
-                           {"proposal": row["id"], "verdict": decision["verdict"],
-                            "risk": decision["risk_score"], "controls": decision["controls"],
-                            "amount": p.amount, "currency": p.currency, "payee": row["payee_masked"]})
-        if decision["verdict"] == "ALLOW":
-            row = await execute(row["id"], "pep:auto")
-        out.append(row)
+        row = await decide(raw, body.document, result["summary"], channel, principal)
+        if row:
+            out.append(agent_view(row) if principal == "agent" else row)
     return {"engine": result["engine"], "summary": redact.redact_text(result["summary"], settings.redaction_level),
             "proposals": out}
+
+
+class ProposeIn(BaseModel):
+    """A structured proposal from an external AI agent (e.g. over MCP). The source document is
+    mandatory: amount and payee must be provable from it (provenance, AI-03/04)."""
+    action: str = Field(pattern="^(payout|invoice)$")
+    payee_email: str = Field(max_length=254)
+    payee_name: str = Field(max_length=140)
+    amount: str = Field(pattern=r"^\d{1,9}(\.\d{1,2})?$")
+    currency: str = Field(pattern="^[A-Za-z]{3}$")
+    purpose: str = Field(max_length=40)
+    country: str = Field(default="US", pattern="^[A-Za-z]{2}$")
+    note: str = Field(default="", max_length=300)
+    source_document: str = Field(min_length=10, max_length=20000)
+
+
+@app.post("/api/agent/propose")
+async def propose(body: ProposeIn, principal: str = Depends(auth.require_agent_or_operator)):
+    raw = body.model_dump(exclude={"source_document"})
+    store.audit.append("ai-agent", "AGENT_PROPOSED", {"submitted_by": principal, "channel": "mcp-propose"})
+    row = await decide(raw, body.source_document, "", "mcp-propose", principal)
+    if not row:
+        raise HTTPException(422, "malformed proposal")
+    return agent_view(row) if principal == "agent" else row
 
 
 @app.get("/api/proposals", dependencies=[Depends(auth.require_operator)])
@@ -152,12 +198,12 @@ def list_proposals():
     return store.list()
 
 
-@app.get("/api/proposals/{pid}", dependencies=[Depends(auth.require_operator)])
-def get_proposal(pid: str):
+@app.get("/api/proposals/{pid}")
+def get_proposal(pid: str, principal: str = Depends(auth.require_agent_or_operator)):
     row = store.get(pid)
     if not row:
         raise HTTPException(404)
-    return row
+    return agent_view(row) if principal == "agent" else row
 
 
 @app.post("/api/proposals/{pid}/approve")

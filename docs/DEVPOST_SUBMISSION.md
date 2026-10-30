@@ -43,7 +43,7 @@ Agentic commerce needs the same primitives as network security: identity for age
 mandates, a policy decision point, and immutable logs.
 
 ## What's next
-MCP server so any agent (Claude Desktop, Cursor) gets the firewall; agent-to-agent settlement via
+Per-agent mandates for MCP clients (the MCP server already ships: any agent can propose payments through the firewall, propose-only); agent-to-agent settlement via
 Orders; official OFAC/UN/EU list ingestion; SSO + FIDO2 for operators; SIEM export.
 
 ## Links

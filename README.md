@@ -27,6 +27,7 @@ Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) (Pay
 - [Try the six scenarios](#try-the-six-scenarios-dropdown-in-the-ui)
 - [How decisions are made](#how-decisions-are-made)
 - [Redaction: what the AI actually sees](#redaction-what-the-ai-actually-sees)
+- [Use it from any AI agent (MCP)](#use-it-from-any-ai-agent-mcp)
 - [How PayPal and AI are used](#how-paypal-and-ai-are-used)
 - [Security architecture](#security-architecture)
 - [Configuration](#configuration)
@@ -225,6 +226,59 @@ account and routing numbers, SWIFT/BIC codes, SSNs and phone numbers are masked;
 are also redacted before they are stored or written to the audit log. Set the level with
 `PAYWARDEN_REDACTION=off|standard|strict` (`off` is refused outside demo mode).
 
+## Use it from any AI agent (MCP)
+
+PayWarden ships an [MCP](https://modelcontextprotocol.io) server, so any MCP-capable agent
+(Claude Desktop, Cursor, …) can pay people **through the firewall** instead of holding PayPal keys.
+
+```mermaid
+flowchart LR
+    AG["Claude Desktop / Cursor"] -- stdio --> M["paywarden_mcp<br/>agent token only"]
+    M -- "HTTPS · propose-only" --> PW{"PayWarden PEP / PDP"}
+    PW --> PP["PayPal"]
+    H["👤 operators<br/>(dashboard + TOTP)"] -- approve --> PW
+```
+
+| Tool | What it does |
+|---|---|
+| `propose_payment` | Propose one payout or invoice. The original source document is required, and the amount and payee must appear in it. |
+| `analyse_document` | Let PayWarden's own agent read a document and propose the payments in it |
+| `get_proposal_status` | PENDING / EXECUTED (with PayPal ref) / DENIED / REJECTED / FAILED, with reasons |
+| `get_mandate` | The agent's spend limits, currencies and purposes |
+
+**By design there is no approve tool.** The MCP server holds a *propose-only* agent credential
+(`PAYWARDEN_AGENT_TOKEN`). That credential is refused on every approval, rejection, audit and demo-code
+route, and agents get a minimal view of each proposal: no approval binding and no approver list.
+Within the mandate a proposal executes; above it, a human approves in the dashboard with TOTP.
+The server also refuses plain `http://` to anything but localhost.
+
+**Set up** (on the machine running the agent):
+
+```bash
+pip install -r requirements-mcp.txt     # mcp + httpx only
+```
+
+Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "paywarden": {
+      "command": "python",
+      "args": ["-m", "paywarden_mcp"],
+      "cwd": "/path/to/paywarden",
+      "env": {
+        "PAYWARDEN_URL": "http://localhost:8000",
+        "PAYWARDEN_AGENT_TOKEN": "demo-agent-token"
+      }
+    }
+  }
+}
+```
+
+Then ask the agent, for example: *"Pay this invoice: …"*. It calls `propose_payment`, and you see the
+proposal appear in the PayWarden dashboard queue with its verdict.
+
 ## How PayPal and AI are used
 
 | PayPal capability | Use |
@@ -239,6 +293,7 @@ are also redacted before they are stored or written to the audit log. Set the le
 | AI | Use |
 |---|---|
 | **Claude** (`claude-opus-5-5`, configurable via `ANTHROPIC_MODEL`) via tool use | Reads unstructured invoices, extracts payee/amount/currency/purpose, proposes `propose_payment` tool calls, writes a plain-English summary for the approver |
+| **MCP server** (`paywarden_mcp/`) | Lets any MCP-capable agent propose payments through the firewall with a propose-only credential |
 | Guardrails around the model | Redaction before egress, untrusted-document delimiting, provenance checks, schema validation, no credentials, human oversight |
 
 ## Security architecture
@@ -272,6 +327,7 @@ Secrets are never read from code or from the LLM.
 | `PAYWARDEN_REDACTION` | `standard` | `off` / `standard` / `strict` (see [Redaction](#redaction-what-the-ai-actually-sees)) |
 | `PAYWARDEN_DATA_KEY` / `PAYWARDEN_AUDIT_KEY` | ephemeral | 32-byte base64 master keys; purpose keys derived with HKDF. Required when demo mode is off |
 | `OPERATOR_MAKER_TOKEN` / `OPERATOR_CHECKER_TOKEN` | demo values | Per-operator bearer tokens (≥ 32 chars, distinct, when demo mode is off) |
+| `PAYWARDEN_AGENT_TOKEN` | `demo-agent-token` | Propose-only credential for external agents / the MCP server (≥ 32 chars, distinct from operator tokens, when demo mode is off) |
 | `OPERATOR_MAKER_TOTP` / `OPERATOR_CHECKER_TOTP` | demo values | Per-operator base32 TOTP seeds (≥ 160 bits, distinct, when demo mode is off) |
 | `MFA_MAX_FAILURES` / `MFA_LOCKOUT_SECONDS` | `5` / `900` | MFA lockout policy |
 | `ALLOWED_ORIGINS` | `http://localhost:8000` | CORS allow-list (no `*` when demo mode is off) |
@@ -305,19 +361,21 @@ SQLite database resets on every restart.
 
 ## API
 
-All `/api/*` routes (except samples and webhooks) require `Authorization: Bearer <operator token>`
-(`OPERATOR_MAKER_TOKEN` or `OPERATOR_CHECKER_TOKEN`). Approvals and rejections are attributed to
-the operator who owns the token.
+All `/api/*` routes (except samples and webhooks) require `Authorization: Bearer <token>`.
+Operator tokens (`OPERATOR_MAKER_TOKEN`, `OPERATOR_CHECKER_TOKEN`) reach every route; approvals and
+rejections are attributed to the operator who owns the token. The agent token
+(`PAYWARDEN_AGENT_TOKEN`) reaches only the routes marked **agent**.
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/healthz` | Mode: PayPal mock/sandbox, AI engine, redaction level |
-| POST | `/api/agent/analyse` | `{document}` → agent proposals → policy decisions (ALLOW auto-executes) |
-| GET | `/api/proposals` · `/api/proposals/{id}` | Queue (PII masked) |
+| POST | `/api/agent/analyse` | `{document}` → agent proposals → policy decisions (ALLOW auto-executes) · **agent** |
+| POST | `/api/agent/propose` | Structured proposal from an external agent, with `source_document` for provenance · **agent** |
+| GET | `/api/proposals` · `/api/proposals/{id}` | Queue (PII masked) · `{id}` also **agent** (minimal view) |
 | POST | `/api/proposals/{id}/approve` | `{totp, binding}` (binding = 64-hex code shown to the approver) |
 | POST | `/api/proposals/{id}/reject` | `{reason}` |
 | GET | `/api/audit` · `/api/audit/verify` | Audit trail and integrity check |
-| GET | `/api/policy` | Active agent mandate |
+| GET | `/api/policy` | Active agent mandate · **agent** |
 | GET | `/api/demo/totp` | Current demo codes (demo mode only) |
 | POST | `/api/webhooks/paypal` | PayPal events (signature verified, timestamp window, replay cache) |
 
@@ -366,9 +424,9 @@ curl -s localhost:8000/api/audit/verify -H "$H"
 ```bash
 pip install -r requirements-dev.txt
 pytest -q                     # policy, injection, redaction, crypto, MFA replay/lockout, fail-closed config,
-                              # webhook replay, audit tamper detection, end-to-end API
-bandit -q -r app -ll          # SAST
-pip-audit -r requirements.txt # known-CVE scan
+                              # webhook replay, audit tamper detection, MCP agent limits, end-to-end API
+bandit -q -r app paywarden_mcp -ll                     # SAST
+pip-audit -r requirements.txt -r requirements-mcp.txt  # known-CVE scan
 ```
 
 CI runs all three on every push and pull request; any finding fails the build.
@@ -391,6 +449,7 @@ app/
     crypto.py        AES-256-GCM, HKDF key derivation, blind index, masking
     redact.py        PII / financial-identifier redaction and LLM pseudonymisation
     middleware.py    Security headers, body-size limit, rate limiting
+paywarden_mcp/       MCP server (stdio): propose-only firewall access for any MCP agent
 static/              Dashboard (AG Grid Community)
 data/                Synthetic watchlist, FATF/sanctions geo data
 docs/                Goals, compliance matrix, threat model, security procedures, demo script, Devpost draft
@@ -413,8 +472,8 @@ tests/               Unit + end-to-end tests
 
 **Roadmap**
 
-1. **MCP server** so any agent (Claude Desktop, Cursor) gets the firewall.
-2. **Agent-to-agent settlement** through the PayPal Orders API.
+1. **Agent-to-agent settlement** through the PayPal Orders API.
+2. Per-agent mandates, so each MCP client gets its own limits and credential.
 3. Official OFAC SDN / UN / EU list ingestion with transliteration-aware matching.
 4. OIDC/SAML SSO with FIDO2/WebAuthn and role-based access.
 5. Keys in a KMS/HSM with envelope encryption and rotation.
@@ -423,7 +482,7 @@ tests/               Unit + end-to-end tests
 
 ## Built with
 
-Python · FastAPI · PayPal REST APIs (sandbox) · Anthropic Claude · AG Grid Community · SQLite ·
+Python · FastAPI · PayPal REST APIs (sandbox) · Anthropic Claude · Model Context Protocol · AG Grid Community · SQLite ·
 cryptography (AES-GCM, HKDF) · PyOTP · Docker · Render
 
 ## License

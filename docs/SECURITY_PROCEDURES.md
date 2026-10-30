@@ -67,6 +67,7 @@ frameworks it supports. "Audit" means the hash-chained, HMAC-signed log (`/api/a
 | `PAYWARDEN_DATA_KEY` | `enc` AES-256-GCM PII encryption · `blind-index` payee lookup | Yearly, on suspected compromise, or when a custodian leaves |
 | `PAYWARDEN_AUDIT_KEY` | `audit` HMAC per record · `binding` approval dynamic-linking | Yearly or on suspected compromise |
 | Operator tokens / TOTP seeds | Operator authentication | Leaver event, suspected compromise, or 90 days |
+| `PAYWARDEN_AGENT_TOKEN` | Propose-only credential for external AI agents (MCP) | When an agent integration is removed, on suspected compromise, or 90 days |
 
 Rotation steps:
 

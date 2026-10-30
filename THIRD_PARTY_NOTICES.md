@@ -28,6 +28,15 @@ The Docker image redistributes these packages. Each package's full license text 
 it (in its `*.dist-info` directory in the image's site-packages). Packages under Apache-2.0 are
 used unmodified.
 
+## MCP server (`requirements-mcp.txt`)
+
+Installed on the agent's machine, not in the Docker image.
+
+| Package | Version | License | Project |
+|---|---|---|---|
+| mcp | 2.3.0 | MIT | https://github.com/modelcontextprotocol/python-sdk |
+| httpx | 0.28.1 | BSD-3-Clause | https://github.com/encode/httpx |
+
 ## Development and CI only (`requirements-dev.txt`)
 
 pytest (MIT), bandit (Apache-2.0) and pip-audit (Apache-2.0) are used for testing and scanning.
