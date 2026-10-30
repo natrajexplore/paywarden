@@ -38,7 +38,9 @@ _ACCOUNT = re.compile(r"(?i)\b(account|acct|a/c)(\s*(?:no\.?|number|#)?\s*[:#]?\
 _SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 _PHONE = re.compile(r"(?<![\w.])\+?\(?\d[\d ().-]{8,18}\d(?![\w])")
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
-_PARTY = re.compile(r"(?im)^(\s*(?:from|payee|bill from|contractor|vendor|supplier)\s*[:\-]\s*)(.+?)\s*$")
+# One list of counterparty labels, shared by redaction, sanctions screening and the offline extractor.
+PARTY_LABELS = r"from|payee|bill from|contractor|vendor|supplier|seller"
+_PARTY = re.compile(rf"(?im)^(\s*(?:{PARTY_LABELS})\s*[:\-]\s*)(.+?)\s*$")
 
 
 def luhn_ok(digits: str) -> bool:

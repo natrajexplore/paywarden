@@ -104,7 +104,10 @@ Or with Docker: `docker build -t paywarden . && docker run -p 8000:8000 --env-fi
 2. `cp .env.example .env` and set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `ANTHROPIC_API_KEY`.
 3. Generate keys: `python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"` → `PAYWARDEN_DATA_KEY`, `PAYWARDEN_AUDIT_KEY`. For anything beyond local judging, also set per-operator tokens and TOTP seeds and `PAYWARDEN_DEMO_MODE=false` (see `.env.example`).
 4. In the demo documents (`app/samples.py`), replace the `@example.com` payees with your **sandbox personal account** emails so payouts land in a sandbox wallet you can open.
-5. (Optional) Add a sandbox webhook pointing at `https://<your-host>/api/webhooks/paypal` and set `PAYPAL_WEBHOOK_ID`.
+5. (Recommended) Add a sandbox webhook pointing at `https://<your-host>/api/webhooks/paypal`, subscribe to
+   `PAYMENT.PAYOUTS-ITEM.*` and `PAYMENT.CAPTURE.*`, and set `PAYPAL_WEBHOOK_ID`. Verified events settle each
+   payment's final status: a payout PayPal later fails or returns is marked `FAILED`, a pending capture or an
+   `UNCERTAIN` outcome is resolved.
 
 PayWarden **refuses to start** if `PAYPAL_BASE_URL` is not a PayPal sandbox host over HTTPS.
 
@@ -152,23 +155,25 @@ run in order; each can raise the verdict, and the strongest wins:
 | 5 | Provenance: amount and payee email must literally appear in the source document | AI-03/04 | DENY |
 | 6 | Sanctions fuzzy match (≥ 0.88 block, ≥ 0.75 review) and blocked payee domains | AML-01 / AML-02 / AML-03 | DENY / DUAL_CONTROL / DENY |
 | 7 | Geography: comprehensively sanctioned or FATF call-for-action / FATF increased monitoring | GEO-01/02 / GEO-03 | DENY / DUAL_CONTROL |
-| 8 | Spend mandate: per-transaction tiers, rolling 24 h cap, hourly velocity | LIM-01..05 | see table below |
+| 8 | Spend mandate in **USD equivalent**: per-transaction tiers, rolling 24 h cap across all currencies, hourly velocity | LIM-00..05 | see table below |
 | 9 | Duplicate: same payee and amount within 24 h | DUP-01 | DENY |
 | 10 | New beneficiary: first payment to this payee | BEN-01 | STEP_UP |
 | 11 | Structuring: split payments to one payee near limits | AML-04 | DUAL_CONTROL + SAR-review flag |
-| 12 | Travel Rule: ≥ USD 3,000 | TR-01 | record-keeping flag |
+| 12 | Travel Rule: ≥ USD 3,000 equivalent | TR-01 | record-keeping flag |
 
 At approval time the policy is **evaluated again** (time-of-check/time-of-use defence), so a payee
 sanctioned or a limit reached since the proposal still blocks the payment.
 
-**The agent's spend mandate** (`Mandate` in `policy.py`) mirrors a bank's delegated limits:
+**The agent's spend mandate** (`Mandate` in `policy.py`) mirrors a bank's delegated limits. Amounts are
+converted to a USD equivalent with the static, approximate rates in `data/fx_rates.json`, so spreading
+payments across currencies cannot multiply the mandate:
 
 | Limit | Value | Effect |
 |---|---|---|
-| Auto-execute up to | 1,000.00 | above → STEP_UP (one human + TOTP) |
-| Dual control above | 5,000.00 | maker + checker |
-| Hard per-transaction cap | 20,000.00 | above → DENY |
-| Rolling 24 h total (per currency) | 25,000.00 | exceeding → DENY |
+| Auto-execute up to | USD 1,000 equivalent | above → STEP_UP (one human + TOTP) |
+| Dual control above | USD 5,000 equivalent | maker + checker |
+| Hard per-transaction cap | USD 20,000 equivalent | above → DENY |
+| Rolling 24 h total (all currencies) | USD 25,000 equivalent | exceeding → DENY |
 | Payments per hour | 5 | more → STEP_UP |
 | Currencies | USD, EUR, GBP, CAD, AUD, INR | others → DENY |
 | Purposes | contractor_services, freelance_work, supplies, consulting, refund | others → STEP_UP |
@@ -321,6 +326,7 @@ sequenceDiagram
 - **One purchase unit only:** capturing an order pays every unit on it, so orders with more than
   one unit are refused rather than partly checked.
 - **Status after capture:** `EXECUTED` only when PayPal reports the capture `COMPLETED`;
+  a later verified `PAYMENT.CAPTURE.COMPLETED` / `DENIED` webhook settles `CAPTURE_PENDING`;
   `CAPTURE_PENDING` while PayPal holds the funds; `FAILED` if declined, voided or completed elsewhere.
 
 > **Who creates the order (live mode).** PayPal lets only the app that created an order read and
@@ -387,7 +393,7 @@ Secrets are never read from code or from the LLM.
 | `RATE_LIMIT_PER_MIN` | `120` | Requests per minute, per IP and per credential |
 | `MAX_BODY_BYTES` | `131072` | Request body cap (413 above) |
 | `PAYWARDEN_DB` | `data/paywarden.db` | SQLite path |
-| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxy IPs whose `X-Forwarded-For` uvicorn trusts |
+| `TRUSTED_PROXY_HOPS` | `0` | Number of reverse proxies in front of PayWarden; the client IP is taken that many entries from the right of `X-Forwarded-For` (client-supplied entries are ignored). `1` on Render |
 
 Generate strong values:
 
@@ -433,7 +439,7 @@ rejections are attributed to the operator who owns the token. The agent token
 | GET | `/api/policy` | Active agent mandate · **agent** |
 | GET | `/api/demo/totp` | Current demo codes (demo mode only) |
 | POST | `/api/demo/a2a/quote` | Demo seller agent: creates a PayPal Order and returns a quote (demo mode only) · **agent** |
-| POST | `/api/webhooks/paypal` | PayPal events (signature verified, timestamp window, replay cache) |
+| POST | `/api/webhooks/paypal` | PayPal events (signature verified, timestamp window, replay cache); payout-item and capture outcomes update the payment's status |
 
 Interactive docs at `/docs` (demo mode only).
 
@@ -495,6 +501,7 @@ curl -s localhost:8000/api/audit/verify -H "$H"
 | App exits: `Insecure configuration with PAYWARDEN_DEMO_MODE=false` | Fill every item it lists (keys, tokens, seeds), or set demo mode back to `true`. |
 | App exits: `only talks to the PayPal SANDBOX` | `PAYPAL_BASE_URL` must be a PayPal sandbox host over HTTPS. |
 | Header shows `AI: offline-extractor` | `ANTHROPIC_API_KEY` is not set (check the exact name in `.env`). |
+| Payment shows `UNCERTAIN` (HTTP 504) | PayPal timed out or returned a 5xx, so the money may or may not have moved. **Check the PayPal dashboard before paying again.** A verified webhook settles it; meanwhile it still counts toward limits and the duplicate check. |
 | Header shows `PayPal: mock` | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` are not set. |
 | Old data unreadable after restart | No `PAYWARDEN_DATA_KEY` set, so keys were ephemeral. Set both master keys for persistence. |
 

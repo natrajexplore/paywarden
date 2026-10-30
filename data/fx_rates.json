@@ -1,0 +1,12 @@
+{
+  "_note": "APPROXIMATE, STATIC rates used only to express spend limits in one unit (USD equivalent), so a mandate cannot be multiplied by spreading payments across currencies. Not for pricing or settlement. Review monthly (change-management procedure); production should use a licensed rate feed.",
+  "as_of": "2026-10",
+  "usd_per_unit": {
+    "USD": 1.0,
+    "EUR": 1.08,
+    "GBP": 1.27,
+    "CAD": 0.73,
+    "AUD": 0.66,
+    "INR": 0.012
+  }
+}

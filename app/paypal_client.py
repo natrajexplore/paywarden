@@ -76,7 +76,11 @@ class PayPalClient:
                 last = PayPalError(r.status_code, r.text[:300])
                 await asyncio.sleep(0.5 * (2 ** attempt))
                 continue
-            raise PayPalError(r.status_code, r.json() if r.content else {})
+            try:
+                body = r.json() if r.content else {}
+            except ValueError:
+                body = r.text[:300]
+            raise PayPalError(r.status_code, body)
         raise last  # type: ignore[misc]
 
     # ---- Payouts --------------------------------------------------------

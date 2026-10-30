@@ -185,3 +185,118 @@ def test_replayed_webhook_rejected(monkeypatch):
 def test_audit_chain_valid_after_flow():
     v = c.get("/api/audit/verify", headers=H).json()
     assert v["valid"] and v["checked"] > 5
+
+
+# ---------------- full-review fixes
+def test_paypal_timeout_is_uncertain_not_stuck(monkeypatch):
+    """#1: an unknown outcome is recorded (UNCERTAIN), never left in EXECUTING, and still blocks a re-pay."""
+    import httpx
+    p = analyse(doc="INVOICE TO-1\nFrom: Timeout Test\nEmail: timeout@example.com\nTotal due: $211.00 USD")
+
+    async def boom(*a, **k):
+        raise httpx.ReadTimeout("timed out")
+    monkeypatch.setattr(main.paypal, "create_payout", boom)
+    r = approve(p, MAKER, codes()["maker"])
+    assert r.status_code == 504
+    assert c.get(f"/api/proposals/{p['id']}", headers=H).json()["status"] == "UNCERTAIN"
+    again = analyse(doc="INVOICE TO-2\nFrom: Timeout Test\nEmail: timeout@example.com\nTotal due: $211.00 USD")
+    assert again["verdict"] == "DENY" and "DUP-01" in again["decision"]["controls"]
+
+
+def test_paypal_non_json_error_is_a_paypal_error(monkeypatch):
+    """#1: a 4xx with an HTML body raises PayPalError, not a JSON decode crash."""
+    import asyncio
+    import httpx
+    from app import paypal_client
+
+    def handler(request):
+        if request.url.path == "/v1/oauth2/token":
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 3600})
+        return httpx.Response(400, text="<html>Bad Request</html>")
+    real = httpx.AsyncClient
+    monkeypatch.setattr(paypal_client.httpx, "AsyncClient",
+                        lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    with pytest.raises(paypal_client.PayPalError) as e:
+        asyncio.run(paypal_client.PayPalClient()._call("POST", "/v1/payments/payouts", {}))
+    assert e.value.status == 400 and "Bad Request" in e.value.body
+
+
+def test_one_failed_auto_payment_does_not_abort_the_rest(monkeypatch):
+    """#6: every proposal in a document is evaluated even if an earlier auto-execution fails."""
+    from app.security.policy import Decision
+
+    async def two(document):
+        base = dict(action="payout", payee_name="Multi", currency="USD", purpose="supplies", country="US")
+        return {"engine": "test", "summary": "", "proposals": [
+            {**base, "payee_email": "multi.a@example.com", "amount": "11.00"},
+            {**base, "payee_email": "multi.b@example.com", "amount": "12.00"}]}
+
+    async def rejected(*a, **k):
+        raise main.PayPalError(422, {})
+    monkeypatch.setattr(main.agent, "analyse", two)
+    monkeypatch.setattr(main.pdp, "evaluate", lambda p, h: Decision())  # both ALLOW
+    monkeypatch.setattr(main.paypal, "create_payout", rejected)
+    r = c.post("/api/agent/analyse", json={"document": "multi.a@example.com 11.00 multi.b@example.com 12.00"},
+               headers=H)
+    assert r.status_code == 200
+    assert [p["status"] for p in r.json()["proposals"]] == ["FAILED", "FAILED"]
+
+
+def _verified(monkeypatch):
+    async def ok(*_):
+        return True
+    monkeypatch.setattr(main.paypal, "verify_webhook", ok)
+
+
+def _hook(event, tid):
+    return c.post("/api/webhooks/paypal", json=event, headers=_hook_headers(tid))
+
+
+def test_webhook_settles_payout_outcome(monkeypatch):
+    """#7: a verified PAYMENT.PAYOUTS-ITEM.FAILED overrides the optimistic EXECUTED."""
+    _verified(monkeypatch)
+    p = analyse(doc="INVOICE WH-1\nFrom: Webhook Test\nEmail: wh.fail@example.com\nTotal due: $66.00 USD")
+    assert approve(p, MAKER, codes()["maker"]).json()["status"] == "EXECUTED"
+    event = {"event_type": "PAYMENT.PAYOUTS-ITEM.FAILED", "resource": {"payout_item": {"sender_item_id": p["id"]}}}
+    assert _hook(event, "T-WH-1").status_code == 200
+    assert c.get(f"/api/proposals/{p['id']}", headers=H).json()["status"] == "FAILED"
+
+
+def test_webhook_resolves_uncertain_and_pending_capture(monkeypatch):
+    _verified(monkeypatch)
+    p = analyse(doc="INVOICE WH-2\nFrom: Webhook Test\nEmail: wh.ok@example.com\nTotal due: $67.00 USD")
+    main.store.update(p["id"], status="UNCERTAIN")
+    _hook({"event_type": "PAYMENT.PAYOUTS-ITEM.SUCCEEDED", "resource": {"payout_item": {"sender_item_id": p["id"]}}},
+          "T-WH-2")
+    assert c.get(f"/api/proposals/{p['id']}", headers=H).json()["status"] == "EXECUTED"
+
+    q = c.post("/api/demo/a2a/quote", json={"seller_name": "Hook Seller", "seller_email": "hook@seller.example.com",
+                                             "amount": "68.00"}, headers=H).json()
+    o = c.post("/api/agent/pay-order", json={"order_id": q["order_id"], "payee_name": "Hook Seller",
+                                             "source_document": q["quote"]}, headers=H).json()
+    main.store.update(o["id"], status="CAPTURE_PENDING")
+    _hook({"event_type": "PAYMENT.CAPTURE.COMPLETED",
+           "resource": {"supplementary_data": {"related_ids": {"order_id": q["order_id"]}}}}, "T-WH-3")
+    assert c.get(f"/api/proposals/{o['id']}", headers=H).json()["status"] == "EXECUTED"
+
+
+def test_webhook_cannot_resurrect_a_rejected_proposal(monkeypatch):
+    _verified(monkeypatch)
+    p = analyse(doc="INVOICE WH-4\nFrom: Webhook Test\nEmail: wh.rej@example.com\nTotal due: $69.00 USD")
+    c.post(f"/api/proposals/{p['id']}/reject", json={"reason": "no"}, headers=H)
+    _hook({"event_type": "PAYMENT.PAYOUTS-ITEM.SUCCEEDED", "resource": {"payout_item": {"sender_item_id": p["id"]}}},
+          "T-WH-4")
+    assert c.get(f"/api/proposals/{p['id']}", headers=H).json()["status"] == "REJECTED"
+
+
+def test_rate_limit_ignores_client_supplied_forwarded_for():
+    """#5: only the entry our own proxy appended identifies the client."""
+    from starlette.requests import Request
+    from app.security.middleware import RateLimit
+
+    def req(xff):
+        return Request({"type": "http", "headers": [(b"x-forwarded-for", xff.encode())], "client": ("10.0.0.9", 1)})
+    rl = RateLimit(app=None, trusted_hops=1)
+    assert rl.client_ip(req("6.6.6.6, 203.0.113.7")) == "203.0.113.7"
+    assert rl.client_ip(req("7.7.7.7, 8.8.8.8, 203.0.113.7")) == "203.0.113.7"  # rotating fakes: same bucket
+    assert RateLimit(app=None).client_ip(req("6.6.6.6")) == "10.0.0.9"         # no proxy: peer address

@@ -24,7 +24,7 @@ def prop(**kw):
 
 def known(email="maya@example.com"):
     return [{"ts": time.time() - 90000, "payee": email, "amount": "100.00", "currency": "USD",
-             "status": "EXECUTED"}]
+             "status": "EXECUTED", "action": "payout"}]
 
 
 @pytest.fixture
@@ -246,3 +246,41 @@ def test_labelled_parties_in_document_are_sanctions_screened(pdp):
     d = pdp.evaluate(prop(payee_name="Goods", payee_email="sales@dw-trading.example", amount="300.00",
                           source_text=doc), known("sales@dw-trading.example"))
     assert d.verdict == "DENY" and "AML-01" in d.controls
+
+
+# ---------------- full-review fixes
+def test_lookalike_payee_email_not_grounded(pdp):
+    """#2: substrings of the real address are not provenance."""
+    doc = "Invoice: maya.designs@example.com Total due: $850.00 USD"
+    for fake in ("maya.designs@example.co", "ya.designs@example.com"):
+        d = pdp.evaluate(prop(payee_email=fake, source_text=doc), known(fake))
+        assert d.verdict == "DENY" and "AI-04" in d.controls, fake
+
+
+def test_invoice_does_not_make_a_payee_known(pdp):
+    """#3: billing someone is not proof we have paid them."""
+    hist = [{"ts": time.time() - 90000, "payee": "maya@example.com", "amount": "100.00", "currency": "USD",
+             "status": "EXECUTED", "action": "invoice"}]
+    d = pdp.evaluate(prop(), hist)
+    assert d.verdict == "STEP_UP" and "BEN-01" in d.controls
+
+
+def test_daily_limit_spans_currencies(pdp):
+    """#4: 6 currencies must not mean 6x the daily mandate."""
+    hist = known() + [{"ts": time.time() - 60, "payee": "other@example.com", "amount": "24000.00",
+                       "currency": "USD", "status": "EXECUTED", "action": "payout"}]
+    doc = "maya@example.com Total due: EUR 1,500.00"
+    d = pdp.evaluate(prop(amount="1500.00", currency="EUR", source_text=doc), hist)
+    assert d.verdict == "DENY" and "LIM-04" in d.controls
+
+
+def test_limits_are_in_usd_equivalent(pdp):
+    doc = "maya@example.com Total due: GBP 900.00"
+    d = pdp.evaluate(prop(amount="900.00", currency="GBP", source_text=doc), known())  # ~1,143 USD
+    assert d.verdict == "STEP_UP" and "LIM-03" in d.controls
+
+
+def test_strict_redaction_covers_seller_lines():
+    """#10: one shared label list, so strict mode pseudonymises 'Seller:' too."""
+    out = redact.pseudonymise("QUOTE\nSeller: Darkwave Holdings\nTotal: $5.00", "strict").text
+    assert "Darkwave" not in out and "[PARTY_1]" in out

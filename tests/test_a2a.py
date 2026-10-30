@@ -148,6 +148,9 @@ def test_capture_enforces_escalated_verdict(monkeypatch):
     monkeypatch.setattr(main, "reevaluate", escalated)
     r = c.post(f"/api/proposals/{p['id']}/capture", headers=MAKER).json()
     assert r["status"] == "PENDING" and r["approvals_required"] == 2
+    # full-review #8: the stronger verdict is persisted, so the UI and agents show 2 required
+    assert c.get(f"/api/proposals/{p['id']}", headers=MAKER).json()["verdict"] == "DUAL_CONTROL"
+    assert c.get(f"/api/proposals/{p['id']}", headers=AGENT).json()["approvals_required"] == 2
     done = approve(p["id"], CHECKER, "checker")
     assert done.status_code == 200 and done.json()["status"] == "EXECUTED"
 

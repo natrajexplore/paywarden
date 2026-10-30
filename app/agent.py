@@ -118,7 +118,7 @@ def _fallback(document: str) -> dict:
                 currency = m.group(7)
                 amount = f"{m.group(5).replace(',', '')}.{m.group(6)}"
             break
-    name_m = re.search(r"(?:from|payee|bill from|contractor|vendor|supplier)\s*[:\-]\s*(.+)", document, re.I)
+    name_m = re.search(rf"(?:{redact.PARTY_LABELS})\s*[:\-]\s*(.+)", document, re.I)
     country_m = re.search(r"(?i:country)\s*[:\-]\s*([A-Z]{2})\b", document)
     if not emails or not amount:
         return {"engine": "offline-extractor", "proposals": [], "summary": "No payable item found.",
