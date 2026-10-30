@@ -1,0 +1,7 @@
+{
+  "_note": "Reference data for the hackathon demo. Verify against official sources before any real use: OFAC sanctions programs (home.treasury.gov/policies-offices/terrorism-and-financial-intelligence/ofac) and FATF public statements (fatf-gafi.org). FATF lists reflect the June 2026 plenary as reported by secondary sources; next update after the October 2026 plenary.",
+  "as_of": "2026-06",
+  "comprehensively_sanctioned": ["CU", "IR", "KP"],
+  "fatf_call_for_action": ["IR", "KP", "MM"],
+  "fatf_increased_monitoring": ["AO", "BO", "BA", "BG", "CM", "CI", "CD", "HT", "IQ", "KE", "KW", "LA", "LB", "MC", "NP", "PG", "SS", "SY", "VE", "VN", "VG", "YE"]
+}

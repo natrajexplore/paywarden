@@ -1,0 +1,11 @@
+{
+  "_note": "SYNTHETIC test watchlist for the demo. These names are fictional. Production use requires a licensed screening provider or the official OFAC SDN / Consolidated, UN and EU lists (see scripts in README).",
+  "entries": [
+    {"name": "Darkwave Holdings", "aliases": ["Dark Wave Holding Co"], "list": "TEST-SDN"},
+    {"name": "Ivan Testovich Blockov", "aliases": ["I. T. Blockov"], "list": "TEST-SDN"},
+    {"name": "Crimson Lantern Trading", "aliases": ["Crimson Lantern General Trading"], "list": "TEST-UN"},
+    {"name": "Obsidian Ridge Shipping", "aliases": [], "list": "TEST-EU"},
+    {"name": "Nadia Falsename Sanctionova", "aliases": [], "list": "TEST-SDN"}
+  ],
+  "blocked_domains": ["darkwave-holdings.example", "mule-payouts.example"]
+}
