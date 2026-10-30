@@ -119,8 +119,9 @@ async def pay_order(order_id: str, payee_name: str, source_document: str, purpos
 @server.tool(annotations=_READ_ONLY)
 async def get_proposal_status(proposal_id: str) -> dict[str, Any]:
     """Current status of a proposal: PENDING (awaiting human approval), AWAITING_PAYER (order
-    needs the payer's approval in PayPal), EXECUTED (with PayPal reference), DENIED, REJECTED or
-    FAILED, plus the reasons and controls that fired."""
+    needs the payer's approval in PayPal), CAPTURE_PENDING (captured, funds not settled yet),
+    EXECUTED (with PayPal reference), DENIED, REJECTED or FAILED, plus the reasons and controls
+    that fired."""
     if not proposal_id.isalnum() or len(proposal_id) > 32:
         return {"error": "invalid proposal id"}
     return await _call("GET", f"/api/proposals/{proposal_id}")

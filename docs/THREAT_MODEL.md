@@ -36,9 +36,13 @@ webhooks → PayWarden.
 | T25 | MCP server sends the agent token over plain HTTP | Information disclosure | MCP server refuses `http://` except to localhost |
 | T26 | Buyer agent is fed a doctored quote, or pays an order that differs from what the seller quoted | Tampering · LLM05 | Amount, currency and payee read from PayPal's order; the quote must contain order ID, payee and amount (AI-03/04); full policy + human approval |
 | T27 | Seller changes the order after the human approved it | Tampering (TOCTOU) | Order fetched again before capture; any change fails the payment |
-| T28 | Same order paid twice | Tampering | Completed orders refused (409); duplicate rule; idempotent capture |
+| T28 | Same order paid twice, or a capture racing a cancel | Tampering / Race | Completed orders refused (409); duplicate rule; idempotent capture; atomic status claim before execution |
+| T29 | Hidden extra purchase unit on a seller's order (quote shows $50, capture pays $9,050) | Tampering | Orders with more than one purchase unit refused at proposal and at capture |
+| T30 | Agent supplies an innocent payee name to dodge sanctions screening | Spoofing | Every labelled party in the document (From/Seller/Vendor/…) is screened, not just the agent's name |
 
-**Residual risks (accepted for the hackathon):** static bearer tokens instead of SSO + FIDO2;
+**Residual risks (accepted for the hackathon):** agent-to-agent orders must be created through
+PayWarden's own PayPal app (PayPal only lets the creating app read and capture an order);
+static bearer tokens instead of SSO + FIDO2;
 ephemeral keys in demo mode; in-memory rate limiter, MFA lockout and replay state (reset on
 restart, not shared across replicas); regex redaction can miss unusual identifier formats; static FATF/sanctions data; regex-based injection
 detection can be evaded by novel phrasing — which is why provenance checks and human approval are

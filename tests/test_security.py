@@ -239,3 +239,10 @@ def test_only_paypal_sandbox_https_allowed(monkeypatch, url):
     monkeypatch.setenv("PAYPAL_BASE_URL", url)
     with pytest.raises(RuntimeError):
         Settings().validate()
+
+
+def test_labelled_parties_in_document_are_sanctions_screened(pdp):
+    doc = "QUOTE\nSeller: Darkwave Holdings\nEmail: sales@dw-trading.example\nItem: Goods\nTotal: $300.00"
+    d = pdp.evaluate(prop(payee_name="Goods", payee_email="sales@dw-trading.example", amount="300.00",
+                          source_text=doc), known("sales@dw-trading.example"))
+    assert d.verdict == "DENY" and "AML-01" in d.controls

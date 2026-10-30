@@ -4,9 +4,11 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import re
 import time
 import uuid
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 import pyotp
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -67,31 +69,67 @@ def order_facts(order: dict) -> dict:
             "payee_email": str((unit.get("payee") or {}).get("email_address", "")), "payer_action_url": link}
 
 
+WAITING_FOR_PAYER = ("CREATED", "SAVED", "PAYER_ACTION_REQUIRED")
+
+
+def single_unit(order: dict) -> bool:
+    """Capturing pays *every* purchase unit, so only one-unit orders can be checked and approved."""
+    return len(order.get("purchase_units") or []) == 1
+
+
+def same_order(facts: dict, row: dict) -> bool:
+    try:
+        same_amount = Decimal(facts["amount"]) == Decimal(row["amount"])
+    except InvalidOperation:
+        return False
+    return (same_amount and facts["currency"] == row["currency"]
+            and facts["payee_email"].lower() == row["payee_email"].lower())
+
+
 async def settle_order(pid: str, row: dict, actor: str) -> dict:
     """Capture a seller's PayPal Order — only if it still matches exactly what was approved."""
     oid = row["paypal_ref"]
     order = await paypal.get_order(oid)
     facts = order_facts(order)
-    if (facts["amount"], facts["currency"], facts["payee_email"].lower()) != \
-            (row["amount"], row["currency"], row["payee_email"].lower()):
+    if not (single_unit(order) and same_order(facts, row)):
         store.update(pid, status="FAILED")
         store.audit.append(actor, "ORDER_CHANGED", {"proposal": pid, "order": oid})
         raise HTTPException(409, "PayPal order no longer matches what was approved")
-    if order.get("status") != "APPROVED":
+    status = order.get("status")
+    if status in WAITING_FOR_PAYER:
         store.update(pid, status="AWAITING_PAYER")
-        store.audit.append(actor, "ORDER_AWAITING_PAYER", {"proposal": pid, "order": oid,
-                                                          "order_status": order.get("status")})
+        store.audit.append(actor, "ORDER_AWAITING_PAYER", {"proposal": pid, "order": oid, "order_status": status})
         return {**store.get(pid), "payer_action_url": facts["payer_action_url"]}
+    if status != "APPROVED":  # VOIDED, COMPLETED elsewhere, …: never payable again
+        store.update(pid, status="FAILED")
+        store.audit.append(actor, "ORDER_NOT_PAYABLE", {"proposal": pid, "order": oid, "order_status": status})
+        raise HTTPException(409, f"PayPal order is {status}")
     res = await paypal.capture_order(oid, pid)
     captures = ((res.get("purchase_units") or [{}])[0].get("payments") or {}).get("captures") or [{}]
-    store.update(pid, status="EXECUTED")
-    store.audit.append(actor, "PAYPAL_EXECUTED",
-                       {"proposal": pid, "action": "order", "paypal_ref": oid, "capture": captures[0].get("id"),
-                        "amount": row["amount"], "currency": row["currency"], "mode": paypal.mode})
+    cap_id, cap_status = captures[0].get("id"), captures[0].get("status")
+    details = {"proposal": pid, "action": "order", "paypal_ref": oid, "capture": cap_id,
+               "capture_status": cap_status, "amount": row["amount"], "currency": row["currency"],
+               "mode": paypal.mode}
+    if cap_status == "COMPLETED":
+        store.update(pid, status="EXECUTED")
+        store.audit.append(actor, "PAYPAL_EXECUTED", details)
+    elif cap_status == "PENDING":  # funds not settled yet (e.g. under PayPal review)
+        store.update(pid, status="CAPTURE_PENDING")
+        store.audit.append(actor, "PAYPAL_CAPTURE_PENDING", details)
+    else:
+        store.update(pid, status="FAILED")
+        store.audit.append(actor, "PAYPAL_CAPTURE_FAILED", details)
+        raise HTTPException(502, f"PayPal did not complete the capture ({cap_status or 'no capture'})")
     return store.get(pid)
 
 
+EXECUTABLE = ("APPROVED", "PENDING", "AWAITING_PAYER")
+
+
 async def execute(pid: str, actor: str) -> dict:
+    # Atomic claim: a concurrent reject, capture or approval can never run a second execution.
+    if not store.transition(pid, EXECUTABLE, "EXECUTING"):
+        raise HTTPException(409, "proposal is already being executed or is no longer executable")
     row = store.get(pid, reveal=True)
     try:
         if row["action"] == "order":
@@ -246,16 +284,22 @@ class PayOrderIn(BaseModel):
 @app.post("/api/agent/pay-order")
 async def pay_order(body: PayOrderIn, principal: str = Depends(auth.require_agent_or_operator)):
     doc = body.source_document
-    if body.order_id not in doc or body.payee_name.strip().lower() not in doc.lower():
+    # Whole-token match: a prefix of a longer order id in the quote does not count.
+    id_in_quote = re.search(rf"(?<![A-Za-z0-9-]){re.escape(body.order_id)}(?![A-Za-z0-9-])", doc)
+    if not id_in_quote or body.payee_name.strip().lower() not in doc.lower():
         store.audit.append("pep", "ORDER_NOT_GROUNDED", {"order": body.order_id, "submitted_by": principal})
         raise HTTPException(422, "the seller's quote must contain this order id and payee name")
     try:
         order = await paypal.get_order(body.order_id)
     except PayPalError as e:
         raise HTTPException(404 if e.status == 404 else 502, f"PayPal order lookup failed ({e.status})")
-    if order.get("status") in ("COMPLETED", "VOIDED"):
-        store.audit.append("pep", "ORDER_NOT_PAYABLE", {"order": body.order_id, "order_status": order.get("status")})
-        raise HTTPException(409, f"PayPal order is {order.get('status')}")
+    status = order.get("status")
+    if status not in WAITING_FOR_PAYER + ("APPROVED",):
+        store.audit.append("pep", "ORDER_NOT_PAYABLE", {"order": body.order_id, "order_status": status})
+        raise HTTPException(409, f"PayPal order is {status}")
+    if not single_unit(order):
+        store.audit.append("pep", "ORDER_MULTI_UNIT", {"order": body.order_id, "submitted_by": principal})
+        raise HTTPException(422, "only orders with exactly one purchase unit can be paid")
     facts = order_facts(order)
     raw = {"action": "order", "payee_email": facts["payee_email"], "payee_name": body.payee_name,
            "amount": facts["amount"], "currency": facts["currency"], "purpose": body.purpose,
@@ -359,7 +403,13 @@ async def capture(pid: str, operator: str = Depends(auth.require_operator)):
         raise HTTPException(404)
     if row["status"] != "AWAITING_PAYER":
         raise HTTPException(409, f"proposal is {row['status']}")
-    reevaluate(pid, row)
+    # The fresh verdict can be stronger (e.g. structuring since approval): demand the missing approvals.
+    verdict = max(row["verdict"], reevaluate(pid, row).verdict, key=lambda v: ORDER[v])
+    need = auth.required_approvers(verdict)
+    if len(row["approvals"]) < need:
+        if store.transition(pid, ("AWAITING_PAYER",), "PENDING"):
+            store.audit.append("pep", "ESCALATED_ON_REEVALUATION", {"proposal": pid, "verdict": verdict})
+        return {**store.get(pid), "approvals_required": need}
     return await execute(pid, operator)
 
 
@@ -368,9 +418,8 @@ def reject(pid: str, body: RejectIn, operator: str = Depends(auth.require_operat
     row = store.get(pid)
     if not row:
         raise HTTPException(404)
-    if row["status"] not in ("PENDING", "AWAITING_PAYER"):
-        raise HTTPException(409, f"proposal is {row['status']}")
-    store.update(pid, status="REJECTED")
+    if not store.transition(pid, ("PENDING", "AWAITING_PAYER"), "REJECTED"):
+        raise HTTPException(409, f"proposal is {store.get(pid)['status']}")
     store.audit.append(operator, "REJECTED",
                        {"proposal": pid, "reason": redact.redact_text(body.reason, settings.redaction_level)})
     return store.get(pid)

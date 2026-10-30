@@ -106,6 +106,15 @@ class Store:
             self.conn.execute(f"UPDATE proposals SET {sets} WHERE id=?", (*fields.values(), pid))  # nosec B608
             self.conn.commit()
 
+    def transition(self, pid: str, from_statuses: tuple, to: str) -> bool:
+        """Compare-and-set on status: True only for the one caller that wins the transition."""
+        marks = ",".join("?" * len(from_statuses))
+        with self.lock:
+            cur = self.conn.execute(f"UPDATE proposals SET status=? WHERE id=? AND status IN ({marks})",  # nosec B608
+                                    (to, pid, *from_statuses))
+            self.conn.commit()
+        return cur.rowcount == 1
+
     def webhook_replayed(self, transmission_id: str) -> bool:
         """Records a webhook transmission id; True if it was already seen (replay)."""
         with self.lock:
