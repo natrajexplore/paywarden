@@ -100,10 +100,27 @@ async def analyse_document(document: str) -> dict[str, Any]:
     return await _call("POST", "/api/agent/analyse", {"document": document})
 
 
+@server.tool(annotations=_MOVES_MONEY)
+async def pay_order(order_id: str, payee_name: str, source_document: str, purpose: str = "supplies",
+                    country: str = "US") -> dict[str, Any]:
+    """Agent-to-agent: pay a seller agent's PayPal Order through the firewall.
+
+    PayWarden reads the amount, currency and payee from PayPal itself; you cannot change them.
+    source_document is the seller's quote, unmodified: it must contain the order id, the payee
+    name, the payee email and the amount. Returns the verdict; after approval the order is
+    captured, or waits (AWAITING_PAYER) until the payer approves it in PayPal.
+    """
+    return await _call("POST", "/api/agent/pay-order", {
+        "order_id": order_id, "payee_name": payee_name, "source_document": source_document,
+        "purpose": purpose, "country": country,
+    })
+
+
 @server.tool(annotations=_READ_ONLY)
 async def get_proposal_status(proposal_id: str) -> dict[str, Any]:
-    """Current status of a proposal: PENDING (awaiting human approval), EXECUTED (with PayPal
-    reference), DENIED, REJECTED or FAILED, plus the reasons and controls that fired."""
+    """Current status of a proposal: PENDING (awaiting human approval), AWAITING_PAYER (order
+    needs the payer's approval in PayPal), EXECUTED (with PayPal reference), DENIED, REJECTED or
+    FAILED, plus the reasons and controls that fired."""
     if not proposal_id.isalnum() or len(proposal_id) > 32:
         return {"error": "invalid proposal id"}
     return await _call("GET", f"/api/proposals/{proposal_id}")

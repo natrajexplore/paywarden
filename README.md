@@ -28,6 +28,7 @@ Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) (Pay
 - [How decisions are made](#how-decisions-are-made)
 - [Redaction: what the AI actually sees](#redaction-what-the-ai-actually-sees)
 - [Use it from any AI agent (MCP)](#use-it-from-any-ai-agent-mcp)
+- [Agent-to-agent payments (PayPal Orders)](#agent-to-agent-payments-paypal-orders)
 - [How PayPal and AI are used](#how-paypal-and-ai-are-used)
 - [Security architecture](#security-architecture)
 - [Configuration](#configuration)
@@ -243,7 +244,8 @@ flowchart LR
 |---|---|
 | `propose_payment` | Propose one payout or invoice. The original source document is required, and the amount and payee must appear in it. |
 | `analyse_document` | Let PayWarden's own agent read a document and propose the payments in it |
-| `get_proposal_status` | PENDING / EXECUTED (with PayPal ref) / DENIED / REJECTED / FAILED, with reasons |
+| `pay_order` | Pay a seller agent's PayPal Order (see [agent-to-agent payments](#agent-to-agent-payments-paypal-orders)) |
+| `get_proposal_status` | PENDING / AWAITING_PAYER / EXECUTED (with PayPal ref) / DENIED / REJECTED / FAILED, with reasons |
 | `get_mandate` | The agent's spend limits, currencies and purposes |
 
 **By design there is no approve tool.** The MCP server holds a *propose-only* agent credential
@@ -279,6 +281,46 @@ Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json`):
 Then ask the agent, for example: *"Pay this invoice: …"*. It calls `propose_payment`, and you see the
 proposal appear in the PayWarden dashboard queue with its verdict.
 
+## Agent-to-agent payments (PayPal Orders)
+
+When a **seller agent** quotes a price, it creates a PayPal Order payable to the seller. The
+**buyer agent** pays that order through PayWarden with the `pay_order` MCP tool
+(`POST /api/agent/pay-order`).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Seller agent
+    participant PP as PayPal
+    participant B as Buyer agent (MCP)
+    participant PW as PayWarden
+    participant H as Operator
+    S->>PP: create Order (payee = seller)
+    S-->>B: quote (order id, payee, amount)
+    B->>PW: pay_order(order_id, quote)
+    PW->>PP: GET order — amount, currency, payee
+    PW->>PW: quote names order + payee + amount? full policy
+    PW-->>H: STEP_UP / DUAL_CONTROL
+    H->>PW: approve with TOTP
+    PW->>PP: GET order again — unchanged? APPROVED by payer?
+    PW->>PP: capture (PayPal-Request-Id)
+    PW-->>B: EXECUTED
+```
+
+- **PayPal is the source of truth.** The amount, currency and payee come from PayPal's copy of the
+  order, never from the agent. The seller's quote must contain the order ID, payee name, payee email
+  and amount, so a doctored quote fails provenance (AI-04).
+- **Same policy as every payment:** sanctions, geography, limits, duplicates and human approval.
+- **Checked again before capture:** if the order changed after approval, the payment fails instead
+  of being captured.
+- **Payer approval:** PayPal only lets an order be captured after the payer approves it. If it is
+  still waiting, the proposal moves to `AWAITING_PAYER` with the PayPal approval link; once the payer
+  approves, an operator calls `POST /api/proposals/{id}/capture`. Agents cannot capture.
+- **Paid once:** a completed order is refused (409), and captures are idempotent.
+
+Try it in demo mode: `POST /api/demo/a2a/quote` plays the seller agent and returns a quote.
+Mock mode simulates the payer's approval.
+
 ## How PayPal and AI are used
 
 | PayPal capability | Use |
@@ -286,7 +328,7 @@ proposal appear in the PayWarden dashboard queue with its verdict.
 | OAuth 2.0 client credentials | Token held only by PayWarden, cached in memory, auto-refresh |
 | **Payouts API** (`/v1/payments/payouts`) | Pay contractors after policy + approval; `sender_item_id` = proposal ID |
 | **Invoicing API v2** (create + send) | When the document is a bill *to* a client |
-| **Orders API v2** | Client implemented; agent-to-agent settlement is on the roadmap |
+| **Orders API v2** (get + capture) | Agent-to-agent settlement: PayWarden reads the seller's order from PayPal, applies policy and human approval, then captures it |
 | **Webhooks** (`verify-webhook-signature`) | Only signature-verified, fresh, non-replayed events are accepted |
 | `PayPal-Request-Id` | Idempotency on every write, so retries never double-pay |
 
@@ -374,19 +416,22 @@ rejections are attributed to the operator who owns the token. The agent token
 | GET | `/api/proposals` · `/api/proposals/{id}` | Queue (PII masked) · `{id}` also **agent** (minimal view) |
 | POST | `/api/proposals/{id}/approve` | `{totp, binding}` (binding = 64-hex code shown to the approver) |
 | POST | `/api/proposals/{id}/reject` | `{reason}` |
+| POST | `/api/agent/pay-order` | `{order_id, payee_name, source_document}`: pay a seller's PayPal Order · **agent** |
+| POST | `/api/proposals/{id}/capture` | Capture an approved order once the payer has approved it in PayPal |
 | GET | `/api/audit` · `/api/audit/verify` | Audit trail and integrity check |
 | GET | `/api/policy` | Active agent mandate · **agent** |
 | GET | `/api/demo/totp` | Current demo codes (demo mode only) |
+| POST | `/api/demo/a2a/quote` | Demo seller agent: creates a PayPal Order and returns a quote (demo mode only) · **agent** |
 | POST | `/api/webhooks/paypal` | PayPal events (signature verified, timestamp window, replay cache) |
 
 Interactive docs at `/docs` (demo mode only).
 
 ### Postman collection
 
-[`postman/`](postman/) holds a self-checking collection: **27 requests, 65 assertions** covering a
+[`postman/`](postman/) holds a self-checking collection: **34 requests, 78 assertions** covering a
 STEP-UP payout, dual control, four attacks being denied, security controls (missing token, agent
-token on operator routes, tampered binding, reused TOTP code), the MCP agent channel and audit-chain
-verification. Each step stores IDs, binding codes and TOTP codes for the next, so it runs in one click.
+token on operator routes, tampered binding, reused TOTP code), the MCP agent channel, agent-to-agent
+Orders settlement (including a doctored quote) and audit-chain verification. Each step stores IDs, binding codes and TOTP codes for the next, so it runs in one click.
 
 1. In Postman: **Import** `postman/PayWarden.postman_collection.json` and
    `postman/PayWarden-local.postman_environment.json`, then select the **PayWarden — local** environment.
@@ -496,8 +541,8 @@ tests/               Unit + end-to-end tests
 
 **Roadmap**
 
-1. **Agent-to-agent settlement** through the PayPal Orders API.
-2. Per-agent mandates, so each MCP client gets its own limits and credential.
+1. Per-agent mandates, so each MCP client gets its own limits and credential.
+2. Live sandbox verification of the payer-approval step for agent-to-agent Orders.
 3. Official OFAC SDN / UN / EU list ingestion with transliteration-aware matching.
 4. OIDC/SAML SSO with FIDO2/WebAuthn and role-based access.
 5. Keys in a KMS/HSM with envelope encryption and rotation.

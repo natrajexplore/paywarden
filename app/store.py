@@ -53,7 +53,7 @@ class Store:
         ).fetchall()
         return [{"ts": r[0], "payee": r[1], "amount": r[2], "currency": r[3], "status": r[4]} for r in rows]
 
-    def create(self, p, decision: dict, binding_fn, ai_summary: str) -> dict:
+    def create(self, p, decision: dict, binding_fn, ai_summary: str, paypal_ref: str | None = None) -> dict:
         pid = uuid.uuid4().hex[:16]
         aad = pid
         status = {"ALLOW": "APPROVED", "DENY": "DENIED"}.get(decision["verdict"], "PENDING")
@@ -70,7 +70,7 @@ class Store:
                  p.amount, p.currency, p.purpose, p.country, redact.redact_text(p.note[:500], lvl),
                  hashlib.sha256(p.source_text.encode()).hexdigest(),
                  decision["verdict"], decision["risk_score"], json.dumps(decision),
-                 status, "[]", binding, None, redact.redact_text(ai_summary[:1000], lvl)),
+                 status, "[]", binding, paypal_ref, redact.redact_text(ai_summary[:1000], lvl)),
             )
             self.conn.commit()
         return self.get(pid)

@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import time
+import uuid
 from datetime import datetime
 
 import pyotp
@@ -56,9 +57,45 @@ class RejectIn(BaseModel):
 
 
 # ---------------------------------------------------------------- helpers
+def order_facts(order: dict) -> dict:
+    """What PayPal itself says the order is for — the source of truth for agent-to-agent payments."""
+    unit = (order.get("purchase_units") or [{}])[0]
+    amt = unit.get("amount") or {}
+    link = next((lk.get("href") for lk in order.get("links", []) if lk.get("rel") in ("payer-action", "approve")),
+                None)
+    return {"amount": str(amt.get("value", "")), "currency": str(amt.get("currency_code", "")).upper(),
+            "payee_email": str((unit.get("payee") or {}).get("email_address", "")), "payer_action_url": link}
+
+
+async def settle_order(pid: str, row: dict, actor: str) -> dict:
+    """Capture a seller's PayPal Order — only if it still matches exactly what was approved."""
+    oid = row["paypal_ref"]
+    order = await paypal.get_order(oid)
+    facts = order_facts(order)
+    if (facts["amount"], facts["currency"], facts["payee_email"].lower()) != \
+            (row["amount"], row["currency"], row["payee_email"].lower()):
+        store.update(pid, status="FAILED")
+        store.audit.append(actor, "ORDER_CHANGED", {"proposal": pid, "order": oid})
+        raise HTTPException(409, "PayPal order no longer matches what was approved")
+    if order.get("status") != "APPROVED":
+        store.update(pid, status="AWAITING_PAYER")
+        store.audit.append(actor, "ORDER_AWAITING_PAYER", {"proposal": pid, "order": oid,
+                                                          "order_status": order.get("status")})
+        return {**store.get(pid), "payer_action_url": facts["payer_action_url"]}
+    res = await paypal.capture_order(oid, pid)
+    captures = ((res.get("purchase_units") or [{}])[0].get("payments") or {}).get("captures") or [{}]
+    store.update(pid, status="EXECUTED")
+    store.audit.append(actor, "PAYPAL_EXECUTED",
+                       {"proposal": pid, "action": "order", "paypal_ref": oid, "capture": captures[0].get("id"),
+                        "amount": row["amount"], "currency": row["currency"], "mode": paypal.mode})
+    return store.get(pid)
+
+
 async def execute(pid: str, actor: str) -> dict:
     row = store.get(pid, reveal=True)
     try:
+        if row["action"] == "order":
+            return await settle_order(pid, row, actor)
         if row["action"] == "payout":
             res = await paypal.create_payout(pid, row["payee_email"], row["amount"], row["currency"],
                                              row["note"] or "Payment")
@@ -122,10 +159,13 @@ def agent_view(row: dict) -> dict:
     out = {k: row[k] for k in AGENT_VIEW}
     out["reasons"], out["controls"] = row["decision"]["reasons"], row["decision"]["controls"]
     out["approvals_required"] = auth.required_approvers(row["verdict"])
+    if row.get("payer_action_url"):
+        out["payer_action_url"] = row["payer_action_url"]
     return out
 
 
-async def decide(raw: dict, source_text: str, summary: str, channel: str, submitted_by: str) -> dict | None:
+async def decide(raw: dict, source_text: str, summary: str, channel: str, submitted_by: str,
+                 paypal_ref: str | None = None) -> dict | None:
     """Every proposal, from any channel, takes this single path through the PDP."""
     try:
         p = Proposal(
@@ -140,7 +180,7 @@ async def decide(raw: dict, source_text: str, summary: str, channel: str, submit
         return None
     p.payee_key = store.payee_key(p.payee_email) if p.payee_email else ""
     decision = pdp.evaluate(p, store.history(p.agent_id)).to_dict()
-    row = store.create(p, decision, auth.binding_digest, summary)
+    row = store.create(p, decision, auth.binding_digest, summary, paypal_ref)
     store.audit.append("pep", "POLICY_DECISION",
                        {"proposal": row["id"], "verdict": decision["verdict"],
                         "risk": decision["risk_score"], "controls": decision["controls"],
@@ -193,6 +233,65 @@ async def propose(body: ProposeIn, principal: str = Depends(auth.require_agent_o
     return agent_view(row) if principal == "agent" else row
 
 
+class PayOrderIn(BaseModel):
+    """Agent-to-agent: pay a seller agent's PayPal Order. Amount, currency and payee are taken from
+    PayPal, not from the agent; the seller's quote must name this order, the amount and the payee."""
+    order_id: str = Field(pattern=r"^[A-Z0-9-]{5,40}$")
+    payee_name: str = Field(min_length=1, max_length=140)
+    purpose: str = Field(default="supplies", max_length=40)
+    country: str = Field(default="US", pattern="^[A-Za-z]{2}$")
+    source_document: str = Field(min_length=10, max_length=20000)
+
+
+@app.post("/api/agent/pay-order")
+async def pay_order(body: PayOrderIn, principal: str = Depends(auth.require_agent_or_operator)):
+    doc = body.source_document
+    if body.order_id not in doc or body.payee_name.strip().lower() not in doc.lower():
+        store.audit.append("pep", "ORDER_NOT_GROUNDED", {"order": body.order_id, "submitted_by": principal})
+        raise HTTPException(422, "the seller's quote must contain this order id and payee name")
+    try:
+        order = await paypal.get_order(body.order_id)
+    except PayPalError as e:
+        raise HTTPException(404 if e.status == 404 else 502, f"PayPal order lookup failed ({e.status})")
+    if order.get("status") in ("COMPLETED", "VOIDED"):
+        store.audit.append("pep", "ORDER_NOT_PAYABLE", {"order": body.order_id, "order_status": order.get("status")})
+        raise HTTPException(409, f"PayPal order is {order.get('status')}")
+    facts = order_facts(order)
+    raw = {"action": "order", "payee_email": facts["payee_email"], "payee_name": body.payee_name,
+           "amount": facts["amount"], "currency": facts["currency"], "purpose": body.purpose,
+           "country": body.country, "note": f"PayPal order {body.order_id}"}
+    store.audit.append("ai-agent", "AGENT_PAY_ORDER", {"order": body.order_id, "submitted_by": principal})
+    row = await decide(raw, doc, "", "a2a-order", principal, paypal_ref=body.order_id)
+    if not row:
+        raise HTTPException(422, "malformed order")
+    return agent_view(row) if principal == "agent" else row
+
+
+class QuoteIn(BaseModel):
+    seller_name: str = Field(min_length=1, max_length=140)
+    seller_email: str = Field(max_length=254)
+    amount: str = Field(pattern=r"^\d{1,9}(\.\d{1,2})?$")
+    currency: str = Field(default="USD", pattern="^[A-Z]{3}$")
+    description: str = Field(default="Goods", max_length=120)
+
+
+@app.post("/api/demo/a2a/quote", dependencies=[Depends(auth.require_agent_or_operator)])
+async def seller_quote(body: QuoteIn):
+    """DEMO ONLY: plays the *seller* agent — creates a PayPal Order payable to the seller and
+    returns the quote message a buyer agent would receive."""
+    if not DEMO_MODE:
+        raise HTTPException(404)
+    ref = uuid.uuid4().hex[:12]
+    try:
+        order = await paypal.create_order(ref, body.amount, body.currency, body.description, body.seller_email)
+    except PayPalError as e:
+        raise HTTPException(502, f"PayPal rejected the order ({e.status})")
+    quote = (f"QUOTE {ref}\nSeller: {body.seller_name}\nEmail: {body.seller_email}\nItem: {body.description}\n"
+             f"Total: {body.amount} {body.currency}\nPayPal order: {order['id']}")
+    store.audit.append("seller-agent", "SELLER_QUOTE_CREATED", {"order": order["id"], "mode": paypal.mode})
+    return {"order_id": order["id"], "quote": quote, "payer_action_url": order_facts(order)["payer_action_url"]}
+
+
 @app.get("/api/proposals", dependencies=[Depends(auth.require_operator)])
 def list_proposals():
     return store.list()
@@ -231,7 +330,15 @@ async def approve(pid: str, body: ApproveIn, operator: str = Depends(auth.requir
     store.update(pid, approvals=approvals)
     store.audit.append(operator, "APPROVED_MFA", {"proposal": pid, "n": len(approvals)})
 
-    # Zero trust: re-evaluate at execution time (prevents time-of-check/time-of-use gaps)
+    verdict = max(row["verdict"], reevaluate(pid, row).verdict, key=lambda v: ORDER[v])
+    need = auth.required_approvers(verdict)
+    if len(approvals) < need:
+        return {"status": "AWAITING_SECOND_APPROVER", "approvals": len(approvals), "required": need}
+    return await execute(pid, ",".join(a["operator"] for a in approvals))
+
+
+def reevaluate(pid: str, row: dict):
+    """Zero trust: re-evaluate at execution time (prevents time-of-check/time-of-use gaps)."""
     p = Proposal(action=row["action"], payee_email=row["payee_email"], payee_name=row["payee_name"],
                  amount=row["amount"], currency=row["currency"], purpose=row["purpose"],
                  country=row["country"], note=row["note"], agent_id=row["agent_id"],
@@ -241,11 +348,19 @@ async def approve(pid: str, body: ApproveIn, operator: str = Depends(auth.requir
         store.update(pid, status="DENIED")
         store.audit.append("pep", "DENIED_ON_REEVALUATION", {"proposal": pid, "reasons": fresh.reasons})
         raise HTTPException(409, "re-evaluation denied: " + "; ".join(fresh.reasons))
-    verdict = max(row["verdict"], fresh.verdict, key=lambda v: ORDER[v])
-    need = auth.required_approvers(verdict)
-    if len(approvals) < need:
-        return {"status": "AWAITING_SECOND_APPROVER", "approvals": len(approvals), "required": need}
-    return await execute(pid, ",".join(a["operator"] for a in approvals))
+    return fresh
+
+
+@app.post("/api/proposals/{pid}/capture")
+async def capture(pid: str, operator: str = Depends(auth.require_operator)):
+    """Finish an approved agent-to-agent payment once the payer has approved the order in PayPal."""
+    row = store.get(pid, reveal=True)
+    if not row:
+        raise HTTPException(404)
+    if row["status"] != "AWAITING_PAYER":
+        raise HTTPException(409, f"proposal is {row['status']}")
+    reevaluate(pid, row)
+    return await execute(pid, operator)
 
 
 @app.post("/api/proposals/{pid}/reject")
@@ -253,7 +368,7 @@ def reject(pid: str, body: RejectIn, operator: str = Depends(auth.require_operat
     row = store.get(pid)
     if not row:
         raise HTTPException(404)
-    if row["status"] != "PENDING":
+    if row["status"] not in ("PENDING", "AWAITING_PAYER"):
         raise HTTPException(409, f"proposal is {row['status']}")
     store.update(pid, status="REJECTED")
     store.audit.append(operator, "REJECTED",

@@ -79,7 +79,7 @@ def call(name, args):
 
 def test_mcp_exposes_no_approval_tool():
     tools = {t.name: t for t in asyncio.run(mcp_server.server.list_tools())}
-    assert set(tools) == {"propose_payment", "analyse_document", "get_proposal_status", "get_mandate"}
+    assert set(tools) == {"propose_payment", "analyse_document", "pay_order", "get_proposal_status", "get_mandate"}
     assert tools["get_mandate"].annotations.read_only_hint
     assert tools["propose_payment"].annotations.destructive_hint
 
@@ -111,3 +111,11 @@ def test_mcp_refuses_plain_http_to_remote_host(monkeypatch):
         mcp_server.base_url()
     monkeypatch.setenv("PAYWARDEN_URL", "https://paywarden.example.com")
     assert mcp_server.base_url() == "https://paywarden.example.com"
+
+
+def test_mcp_pay_order_agent_to_agent(mcp_against_app):
+    q = c.post("/api/demo/a2a/quote", json={"seller_name": "Lumen Parts", "seller_email": "sales@lumen.example.com",
+                                             "amount": "260.00"}, headers=AGENT).json()
+    p = call("pay_order", {"order_id": q["order_id"], "payee_name": "Lumen Parts", "source_document": q["quote"]})
+    assert p["action"] == "order" and p["status"] == "PENDING" and p["paypal_ref"] == q["order_id"]
+    assert "binding" not in p

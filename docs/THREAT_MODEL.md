@@ -34,6 +34,9 @@ webhooks → PayWarden.
 | T23 | Look-alike PayPal host (`…sandbox.paypal.com.evil.io`) | Spoofing | Exact HTTPS host allow-list |
 | T24 | Third-party agent (via MCP) is prompt-injected and tries to pay an attacker or approve its own payment | Elevation · LLM06 | Propose-only agent credential (no approve tool; operator routes refuse it); source document required for provenance; same policy as every channel; humans approve above mandate |
 | T25 | MCP server sends the agent token over plain HTTP | Information disclosure | MCP server refuses `http://` except to localhost |
+| T26 | Buyer agent is fed a doctored quote, or pays an order that differs from what the seller quoted | Tampering · LLM05 | Amount, currency and payee read from PayPal's order; the quote must contain order ID, payee and amount (AI-03/04); full policy + human approval |
+| T27 | Seller changes the order after the human approved it | Tampering (TOCTOU) | Order fetched again before capture; any change fails the payment |
+| T28 | Same order paid twice | Tampering | Completed orders refused (409); duplicate rule; idempotent capture |
 
 **Residual risks (accepted for the hackathon):** static bearer tokens instead of SSO + FIDO2;
 ephemeral keys in demo mode; in-memory rate limiter, MFA lockout and replay state (reset on

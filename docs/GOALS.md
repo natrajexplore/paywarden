@@ -60,7 +60,7 @@ financial control or failing an audit.
 
 | # | Must-have (Stage-1 pass + core score) | Status |
 |---|---|---|
-| G1 | Real PayPal **sandbox** integration: OAuth2, Payouts, Invoicing (create + send), Orders, Webhook signature verification | done in code (Orders: client only); **live sandbox run pending** |
+| G1 | Real PayPal **sandbox** integration: OAuth2, Payouts, Invoicing (create + send), Orders, Webhook signature verification | done in code (Orders: get + capture for agent-to-agent); **live sandbox run pending** |
 | G2 | AI is central: Claude reads unstructured invoices, extracts payee/amount, proposes PayPal actions via tool use | done in code (with PII redaction); **live Claude run pending** |
 | G3 | Agent never holds PayPal credentials — all actions pass the Policy Enforcement Point | done in code |
 | G4 | Controls: spend mandates, velocity, sanctions screening, structuring detection, injection defence, duplicates | done + hardened (PCI-01, redaction, fail-closed config) |
@@ -75,9 +75,9 @@ financial control or failing an audit.
 |---|---|
 | S1 Deploy on Render (render.yaml included) → hosted demo URL | Best Use of Render |
 | S2 AG Grid risk dashboard with row grouping/conditional styling | Best Use of AG Grid |
-| S3 Agent-to-agent payment flow (buyer agent ⇄ seller agent settle via Orders) | Best Use of Agentic Commerce |
+| S3 Agent-to-agent payment flow (buyer agent ⇄ seller agent settle via Orders) — **done** (`pay_order`; mock-verified, live payer approval pending) | Best Use of Agentic Commerce |
 | S4 Expose PayWarden as an MCP server so *any* agent (Claude Desktop, Cursor) gets the firewall — **done** (`paywarden_mcp/`, propose-only) | Most Creative / Best PayPal + AI |
-| S5 Postman collection for the API — **done** (`postman/`, 27 requests / 65 assertions, runs in CI via Newman) | Postman ecosystem |
+| S5 Postman collection for the API — **done** (`postman/`, 34 requests / 78 assertions, runs in CI via Newman) | Postman ecosystem |
 
 ## 5. Judging criteria → how we score (all equally weighted)
 
