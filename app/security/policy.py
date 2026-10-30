@@ -52,6 +52,10 @@ class Mandate:
     currencies: tuple = ("USD", "EUR", "GBP", "CAD", "AUD", "INR")
     actions: tuple = ("payout", "invoice", "order")
     purposes: tuple = ("contractor_services", "freelance_work", "supplies", "consulting", "refund")
+    # Calibrated signals from a decision model (TypeSafe Jev): manipulation probability, choice confidence
+    manipulation_deny: float = 0.80        # >= -> DENY
+    manipulation_review: float = 0.50      # >= -> STEP_UP
+    min_model_confidence: float = 0.70     # payee/amount pick below -> STEP_UP
 
 
 @dataclass
@@ -67,6 +71,7 @@ class Proposal:
     source_text: str = ""
     agent_id: str = "ap-agent-01"
     payee_key: str = ""   # blind index of the payee (set by the store); falls back to the email
+    ai_signals: dict = field(default_factory=dict)  # {"manipulation": p, "confidence": {...}} from the model
 
 
 @dataclass
@@ -166,6 +171,20 @@ class PolicyEngine:
                 d.escalate("DENY", f"Untrusted document contains '{f}' — quarantined", "AI-01", 60)
             else:
                 d.escalate("STEP_UP", f"Suspicious content in document: {f}", "AI-02", 25)
+
+        # 3a. Model-based signals (decision model, e.g. TypeSafe Jev): a second, calibrated
+        #     manipulation detector beside the regex scan, and "the model was unsure" -> human.
+        risk = (p.ai_signals or {}).get("manipulation")
+        if isinstance(risk, (int, float)):
+            if risk >= m.manipulation_deny:
+                d.escalate("DENY", f"AI model rates manipulation risk {risk:.2f} — quarantined", "AI-05", 60)
+            elif risk >= m.manipulation_review:
+                d.escalate("STEP_UP", f"AI model rates manipulation risk {risk:.2f} — human review", "AI-05", 25)
+        conf = {k: c for k, c in ((p.ai_signals or {}).get("confidence") or {}).items() if isinstance(c, (int, float))}
+        unsure = {k: c for k, c in conf.items() if c < m.min_model_confidence}
+        if unsure:
+            detail = ", ".join(f"{k} {c:.2f}" for k, c in sorted(unsure.items()))
+            d.escalate("STEP_UP", f"AI model unsure of the extraction ({detail}) — confirm", "AI-06", 15)
 
         # 3b. Card data never enters PayWarden (keeps it out of PCI DSS cardholder-data scope)
         if redact.find_pans(p.source_text + " " + p.note):

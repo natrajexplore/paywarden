@@ -10,7 +10,7 @@ duties and audit logs are how banks and enterprise networks stay safe. AI agents
 deserve the same discipline.
 
 ## What it does
-- Claude reads unstructured invoices / statements of work and proposes PayPal Payouts or Invoices via tool use.
+- An AI agent reads unstructured invoices / statements of work and proposes PayPal Payouts or Invoices. It runs on **TypeSafe Jev**, a decision model: PayWarden extracts every email and amount literally in the document, and Jev *chooses* the payee and total among them (it cannot invent values), classifies the action and purpose, and returns a calibrated manipulation probability that the policy engine acts on.
 - The agent has **no PayPal credentials**. PayWarden's policy engine evaluates every proposal: prompt-injection & BEC detection, amount/payee provenance, spend mandate and velocity, sanctions and FATF screening, structuring detection, duplicates, new-beneficiary checks.
 - Verdicts: **ALLOW** (auto-execute on PayPal), **STEP-UP** (one human, TOTP), **DUAL CONTROL** (maker + checker), **DENY** (quarantine).
 - Approvals are cryptographically bound to the exact amount and payee (PSD2-style dynamic linking) and the policy is re-checked at execution time.
@@ -21,10 +21,11 @@ deserve the same discipline.
 - Personal and bank data is redacted before it reaches the LLM. PII is AES-256-GCM encrypted at rest, and PayWarden never touches card data.
 
 ## How we built it
-FastAPI (Python) · PayPal REST APIs on sandbox — OAuth2, Payouts, Invoicing v2, Orders v2, Webhook signature verification, PayPal-Request-Id idempotency · Anthropic Claude with tool use · Model Context Protocol (Python SDK) · AG Grid Community for the operator console · SQLite · cryptography · PyOTP · Postman/Newman · Docker + Render.
+FastAPI (Python) · PayPal REST APIs on sandbox — OAuth2, Payouts, Invoicing v2, Orders v2, Webhook signature verification, PayPal-Request-Id idempotency · TypeSafe Jev (typesafe-sdk) · Anthropic Claude (optional, tool use) · Model Context Protocol (Python SDK) · AG Grid Community for the operator console · SQLite · cryptography · PyOTP · Postman/Newman · Docker + Render.
 
 ## Tools used (required section)
-- **Claude (Anthropic API, model `claude-opus-5-5`)** — document understanding and structured payment proposals through tool use; plain-English summaries for approvers.
+- **TypeSafe Jev (`jev-latest`)** — the AI engine. Typed decisions with calibrated confidence: picks payee and amount among values found in the document, classifies payout vs invoice and purpose, and scores manipulation risk. The probability and confidence drive policy controls AI-05 (manipulation → deny/review) and AI-06 (low confidence → human).
+- **Claude (Anthropic API)** — optional alternative engine via tool use.
 - **PayPal Developer Platform (sandbox)** — Payouts, Invoicing, Orders (agent-to-agent settlement: get + capture), Webhooks (signature-verified outcome reconciliation).
 - **Model Context Protocol** — the `paywarden_mcp` server puts the firewall in front of any MCP agent (Claude Desktop, Cursor) with a propose-only credential.
 - **AG Grid Community** — proposal queue and audit trail grids.

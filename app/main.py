@@ -177,7 +177,7 @@ def index():
 @app.get("/healthz")
 def health():
     return {"ok": True, "paypal_mode": paypal.mode,
-            "ai_engine": settings.anthropic_model if settings.ai_live else "offline-extractor",
+            "ai_engine": settings.ai_engine,
             "demo_mode": DEMO_MODE, "redaction": settings.redaction_level}
 
 
@@ -227,6 +227,7 @@ async def decide(raw: dict, source_text: str, summary: str, channel: str, submit
             currency=str(raw.get("currency", "")).upper(), purpose=str(raw.get("purpose", "")),
             country=str(raw.get("country", "US")).upper()[:2], note=str(raw.get("note", ""))[:300],
             source_text=source_text, agent_id=pdp.mandate.agent_id,
+            ai_signals=raw.get("ai_signals") if isinstance(raw.get("ai_signals"), dict) else {},
         )
     except Exception:  # malformed tool call -> drop, but log
         store.audit.append("pep", "PROPOSAL_MALFORMED", {"raw_keys": sorted(raw.keys()), "channel": channel})
@@ -249,7 +250,11 @@ async def decide(raw: dict, source_text: str, summary: str, channel: str, submit
 
 @app.post("/api/agent/analyse")
 async def analyse(body: AnalyseIn, principal: str = Depends(auth.require_agent_or_operator)):
-    result = await agent.analyse(body.document)
+    try:
+        result = await agent.analyse(body.document)
+    except Exception as e:  # AI engine down or rejected the call: fail closed, nothing is proposed
+        store.audit.append("ai-agent", "AGENT_FAILED", {"engine": settings.ai_engine, "error": e.__class__.__name__})
+        raise HTTPException(502, "AI engine unavailable — no payment was proposed")
     channel = "mcp" if principal == "agent" else "dashboard"
     store.audit.append("ai-agent", "AGENT_ANALYSED",
                        {"engine": result["engine"], "proposals": len(result["proposals"]),

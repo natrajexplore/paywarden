@@ -7,7 +7,7 @@ rights to; screen recording of your own app is fine).
 | Time | Screen | Voice-over (approx.) |
 |---|---|---|
 | 0:00–0:12 | Title card → dashboard | "AI agents can now pay people. One poisoned invoice can make them pay the wrong person. PayWarden is a zero-trust payment firewall between AI agents and PayPal." |
-| 0:12–0:24 | Header badges: PayPal **sandbox**, AI **Claude** | "Claude reads invoices and proposes PayPal payouts, but it holds no PayPal keys. Every proposal must pass our policy engine first." |
+| 0:12–0:24 | Header badges: PayPal **sandbox**, AI **typesafe:jev** | "An AI agent on TypeSafe Jev reads invoices and proposes PayPal payouts, but it holds no PayPal keys. Jev can only pick values that are really in the invoice, and every proposal must pass our policy engine first." |
 | 0:24–0:46 | Scenario 1 → Run → STEP-UP → reasons → demo code → Approve → PayPal ref | "First payment to a new freelancer: a human approves with a one-time code bound to this exact amount and payee, and the payout hits the PayPal sandbox." |
 | 0:46–0:54 | Scenario 2 → ALLOW → EXECUTED instantly | "Next job from the same trusted payee, under the limit: fully autonomous." |
 | 0:54–1:14 | Scenario 3 → DUAL CONTROL → maker approves → "awaiting second" → checker approves | "$7,200 needs two different people, maker and checker, plus a Travel Rule record. Same person twice? Refused." |
@@ -19,8 +19,9 @@ rights to; screen recording of your own app is fine).
 
 ## Before recording the agent-to-agent scene
 
-1. Connect Claude Desktop to PayWarden using the MCP config in the README
-   ([Use it from any AI agent](../README.md#use-it-from-any-ai-agent-mcp)), and restart Claude Desktop.
+1. Connect an MCP client (Claude Desktop's free plan or Cursor both work) to PayWarden using the MCP
+   config in the README ([Use it from any AI agent](../README.md#use-it-from-any-ai-agent-mcp)), then restart it.
+   No Anthropic API key is needed for this: the MCP client is just the agent's chat app.
 2. Create the seller's quote (demo mode) and copy the `quote` text from the response:
 
    ```bash

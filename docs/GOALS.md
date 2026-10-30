@@ -61,7 +61,7 @@ financial control or failing an audit.
 | # | Must-have (Stage-1 pass + core score) | Status |
 |---|---|---|
 | G1 | Real PayPal **sandbox** integration: OAuth2, Payouts, Invoicing (create + send), Orders, Webhook signature verification | done in code (Orders: get + capture for agent-to-agent); **live sandbox run pending** |
-| G2 | AI is central: Claude reads unstructured invoices, extracts payee/amount, proposes PayPal actions via tool use | done in code (with PII redaction); **live Claude run pending** |
+| G2 | AI is central: an AI agent reads unstructured invoices, extracts payee/amount, proposes PayPal actions | done in code: TypeSafe Jev (primary) or Claude, with PII redaction; **live Claude run pending** |
 | G3 | Agent never holds PayPal credentials — all actions pass the Policy Enforcement Point | done in code |
 | G4 | Controls: spend mandates, velocity, sanctions screening, structuring detection, injection defence, duplicates | done + hardened (PCI-01, redaction, fail-closed config) |
 | G5 | Human-in-the-loop: TOTP step-up + maker-checker for high-value | done (per-operator credentials, single-use codes, lockout) |
@@ -104,7 +104,7 @@ financial control or failing an audit.
 
 ## 7. Rule-compliance checklist (from the Official Rules)
 
-- [ ] Uses the PayPal developer platform **sandbox** + an AI model (Claude) — PayPal integration is central
+- [ ] Uses the PayPal developer platform **sandbox** + an AI model (TypeSafe Jev) — PayPal integration is central
 - [ ] Project newly created during the Submission Period (started 30 Oct 2026)
 - [ ] Text description of features & functionality
 - [x] Functional demo: README setup/run instructions **and/or** hosted URL (no mockups) — README verified; hosted URL pending

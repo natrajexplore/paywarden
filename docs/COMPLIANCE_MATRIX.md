@@ -17,6 +17,7 @@ Status legend: **✅ Implemented** in this repo · **🟡 Partial** (demo-grade,
 | VAL-01..04 | Strict validation of model output (decimal, precision, currency, email, purpose) | `policy.py` | ✅ |
 | AI-01/02 | Prompt-injection & BEC indicator scan on untrusted documents; quarantine | `injection.py` | ✅ |
 | AI-03/04 | Amount & payee **provenance**: model output must appear verbatim in source (payee: exact whole email, not a substring) | `injection.py` | ✅ |
+| AI-05/06 | Decision-model signals (TypeSafe Jev): calibrated manipulation probability (≥ 0.80 DENY, ≥ 0.50 human review) and low-confidence payee/amount picks (< 0.70 → human); the model can only choose among values found in the document; engine failure fails closed (502, nothing proposed) | `agent.py`, `policy.py` | ✅ (mocked; live pending) |
 | AML-01/02 | Fuzzy sanctions screening (block ≥ 0.88, manual review ≥ 0.75) | `policy.py` | 🟡 synthetic list |
 | AML-03 | Blocked payee domains (mule accounts) | `policy.py` | ✅ |
 | AML-04 | Structuring red flag → dual control + SAR-review flag | `policy.py` | ✅ |
