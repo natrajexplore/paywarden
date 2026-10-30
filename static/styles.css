@@ -42,6 +42,7 @@ button:disabled { opacity: .5; cursor: progress; }
 .grid { height: 460px; }
 .grid.short { height: 260px; }
 #d-binding { word-break: break-all; }
+.order-box { margin-top: 6px; } a { color: var(--accent); }
 .muted { color: var(--muted); } .small { font-size: 12px; } .mono, code { font-family: var(--mono); font-size: 12px; }
 .verdict { font: 700 18px var(--mono); padding: 10px 12px; border-radius: 8px; margin-bottom: 10px; }
 .v-ALLOW { background: #11291d; color: var(--allow); } .v-STEP_UP { background: #2b2210; color: var(--step); }
