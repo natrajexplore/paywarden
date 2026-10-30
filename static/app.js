@@ -195,7 +195,7 @@ async function boot() {
   $("b-paypal").textContent = "PayPal: " + h.paypal_mode;
   $("b-paypal").className = "badge " + (h.paypal_mode === "sandbox" ? "ok" : "warn");
   $("b-ai").textContent = "AI: " + h.ai_engine;
-  $("b-ai").className = "badge " + (h.ai_engine.startsWith("claude") ? "ok" : "warn");
+  $("b-ai").className = "badge " + (h.ai_engine !== "offline-extractor" ? "ok" : "warn");
   samples = await fetch("/api/samples").then((r) => r.json());
   $("sample").innerHTML = samples.map((s, i) => `<option value="${i}">${esc(s.title)}</option>`).join("");
   $("sample").addEventListener("change", () => { $("doc").value = samples[$("sample").value].document; });

@@ -8,7 +8,7 @@
 
 **AI agents can now move money. PayWarden makes sure they only move it the way a bank would allow.**
 
-PayWarden sits between an AI accounts-payable agent and **PayPal**. The agent (Claude) reads messy
+PayWarden sits between an AI accounts-payable agent and **PayPal**. The agent (**TypeSafe Jev**, or Claude) reads messy
 invoices and "job done" messages and *proposes* PayPal Payouts or Invoices. It holds **no PayPal
 credentials**. Every proposal goes through a Policy Enforcement Point that applies banking-grade
 controls: prompt-injection defence, amount/payee provenance, spend mandates, sanctions and FATF
@@ -16,7 +16,7 @@ screening, structuring detection and duplicate prevention. The proposal is then 
 sent to a human to approve with **TOTP MFA** (and a second, different human for high value), or
 blocked. Every step lands in a **tamper-evident, hash-chained audit log**.
 
-Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) (PayPal sandbox + Claude).
+Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) (PayPal sandbox + TypeSafe Jev).
 
 ## Contents
 
@@ -51,7 +51,7 @@ privilege, default deny, separation of duties, verify every request, log everyth
 ```mermaid
 flowchart LR
     D["📄 Invoice / 'job done' message<br/>(untrusted)"] --> R["Redaction<br/>PII masked / pseudonymised"]
-    R --> A["🤖 Claude AP agent<br/>proposes only · no PayPal keys"]
+    R --> A["🤖 AI agent (TypeSafe Jev)<br/>proposes only · no PayPal keys"]
     A --> P{"PayWarden PEP / PDP<br/>injection · provenance · PCI<br/>mandate · sanctions · AML<br/>geo · duplicates · velocity"}
     P -- ALLOW --> X["💸 PayPal<br/>Payouts / Invoicing"]
     P -- STEP_UP --> H1["👤 1 operator + TOTP"] --> X
@@ -98,10 +98,10 @@ sandbox-shaped stubs, and the agent uses an offline extractor. Badges in the hea
 
 Or with Docker: `docker build -t paywarden . && docker run -p 8000:8000 --env-file .env paywarden`
 
-### Live mode (real PayPal sandbox + Claude)
+### Live mode (real PayPal sandbox + AI)
 
 1. Create a sandbox app at **developer.paypal.com → Apps & Credentials → Sandbox** (enable *Payouts* and *Invoicing*).
-2. `cp .env.example .env` and set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `ANTHROPIC_API_KEY`.
+2. `cp .env.example .env` and set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `TYPESAFE_API_KEY` (or `ANTHROPIC_API_KEY` for Claude).
 3. Generate keys: `python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"` → `PAYWARDEN_DATA_KEY`, `PAYWARDEN_AUDIT_KEY`. For anything beyond local judging, also set per-operator tokens and TOTP seeds and `PAYWARDEN_DEMO_MODE=false` (see `.env.example`).
 4. In the demo documents (`app/samples.py`), replace the `@example.com` payees with your **sandbox personal account** emails so payouts land in a sandbox wallet you can open.
 5. (Recommended) Add a sandbox webhook pointing at `https://<your-host>/api/webhooks/paypal`, subscribe to
@@ -151,6 +151,7 @@ run in order; each can raise the verdict, and the strongest wins:
 | 1 | Agent identity and allowed actions (zero trust: who is asking?) | ZT-01/02 | DENY |
 | 2 | Strict validation of model output: decimal amount with ≤ 2 places, allowed currency, valid email / approved purpose | VAL-01..03 / VAL-04 | DENY / STEP_UP |
 | 3 | Prompt-injection and BEC indicators in the document (override, role hijack, fund sweep, payee change, control bypass / urgency, secrecy, hidden characters) | AI-01 / AI-02 | DENY / STEP_UP |
+| 3a | AI model signals (Jev): manipulation probability ≥ 0.80 / ≥ 0.50; payee or amount picked with confidence < 0.70 | AI-05 / AI-06 | DENY or STEP_UP / STEP_UP |
 | 4 | Card number (Luhn-valid PAN) anywhere in the document | PCI-01 | DENY |
 | 5 | Provenance: amount and payee email must literally appear in the source document | AI-03/04 | DENY |
 | 6 | Sanctions fuzzy match (≥ 0.88 block, ≥ 0.75 review) and blocked payee domains | AML-01 / AML-02 / AML-03 | DENY / DUAL_CONTROL / DENY |
@@ -182,11 +183,11 @@ payments across currencies cannot multiply the mandate:
 
 Before a document leaves PayWarden for the model provider, `app/security/redact.py` masks financial
 identifiers and swaps personal data for placeholders. The placeholders are mapped back **locally**
-after Claude answers, and provenance is checked against the original document. Real output for a
+after the model answers, and provenance is checked against the original document. Real output for a
 sample invoice:
 
 <table>
-<tr><th>Original document</th><th>Sent to Claude (<code>standard</code>)</th><th>Sent to Claude (<code>strict</code>)</th></tr>
+<tr><th>Original document</th><th>Sent to the model (<code>standard</code>)</th><th>Sent to the model (<code>strict</code>)</th></tr>
 <tr><td>
 
 ```text
@@ -351,7 +352,8 @@ Mock mode simulates the payer's approval.
 
 | AI | Use |
 |---|---|
-| **Claude** (`claude-opus-5-5`, configurable via `ANTHROPIC_MODEL`) via tool use | Reads unstructured invoices, extracts payee/amount/currency/purpose, proposes `propose_payment` tool calls, writes a plain-English summary for the approver |
+| **TypeSafe Jev** (`jev-latest`, pin via `TYPESAFE_MODEL`), a decision model | PayWarden extracts every email and amount that literally appears in the document; Jev *chooses* the payee and the total among them (so it cannot invent values), classifies payout vs invoice and the purpose, and returns a calibrated **manipulation probability**. Its confidence feeds policy: AI-05 (manipulation) and AI-06 (low confidence → human) |
+| **Claude** (`claude-opus-5-5`, optional, via `ANTHROPIC_API_KEY`) via tool use | Reads unstructured invoices, extracts payee/amount/currency/purpose, proposes `propose_payment` tool calls, writes a plain-English summary for the approver |
 | **MCP server** (`paywarden_mcp/`) | Lets any MCP-capable agent propose payments through the firewall with a propose-only credential |
 | Guardrails around the model | Redaction before egress, untrusted-document delimiting, provenance checks, schema validation, no credentials, human oversight |
 
@@ -381,7 +383,9 @@ Secrets are never read from code or from the LLM.
 | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | — | Sandbox app credentials. Blank = mock mode |
 | `PAYPAL_BASE_URL` | `https://api-m.sandbox.paypal.com` | Only `api-m.sandbox.paypal.com` / `api.sandbox.paypal.com` over HTTPS are accepted |
 | `PAYPAL_WEBHOOK_ID` | — | Needed to verify webhook signatures |
-| `ANTHROPIC_API_KEY` | — | Claude API key. Blank = offline extractor |
+| `TYPESAFE_API_KEY` | — | TypeSafe Jev key (preferred AI engine) |
+| `TYPESAFE_MODEL` | `jev-latest` | Jev version; pin e.g. `jev-1.14.0` once thresholds are tuned |
+| `ANTHROPIC_API_KEY` | — | Claude API key (used when no TypeSafe key is set). Neither = offline extractor |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | Model used by the agent |
 | `PAYWARDEN_REDACTION` | `standard` | `off` / `standard` / `strict` (see [Redaction](#redaction-what-the-ai-actually-sees)) |
 | `PAYWARDEN_DATA_KEY` / `PAYWARDEN_AUDIT_KEY` | ephemeral | 32-byte base64 master keys; purpose keys derived with HKDF. Required when demo mode is off |
@@ -500,7 +504,8 @@ curl -s localhost:8000/api/audit/verify -H "$H"
 | Re-running a scenario gives **DENY** with `DUP-01` | Same payee and amount within 24 h is treated as a duplicate payment. Use a different invoice, or restart the demo with a fresh DB. |
 | App exits: `Insecure configuration with PAYWARDEN_DEMO_MODE=false` | Fill every item it lists (keys, tokens, seeds), or set demo mode back to `true`. |
 | App exits: `only talks to the PayPal SANDBOX` | `PAYPAL_BASE_URL` must be a PayPal sandbox host over HTTPS. |
-| Header shows `AI: offline-extractor` | `ANTHROPIC_API_KEY` is not set (check the exact name in `.env`). |
+| Header shows `AI: offline-extractor` | Neither `TYPESAFE_API_KEY` nor `ANTHROPIC_API_KEY` is set (check the exact name in `.env`, then restart). |
+| `502 AI engine unavailable` | The AI provider was unreachable or rejected the key. PayWarden fails closed: nothing is proposed. Check the key and `TYPESAFE_MODEL`. |
 | Payment shows `UNCERTAIN` (HTTP 504) | PayPal timed out or returned a 5xx, so the money may or may not have moved. **Check the PayPal dashboard before paying again.** A verified webhook settles it; meanwhile it still counts toward limits and the duplicate check. |
 | Header shows `PayPal: mock` | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` are not set. |
 | Old data unreadable after restart | No `PAYWARDEN_DATA_KEY` set, so keys were ephemeral. Set both master keys for persistence. |
@@ -522,7 +527,7 @@ CI runs these plus the [Postman collection](#postman-collection) (via Newman) on
 ```
 app/
   main.py            FastAPI app — the Policy Enforcement Point
-  agent.py           Claude AP agent (tool use) + offline fallback
+  agent.py           AP agent: TypeSafe Jev (decisions) or Claude (tool use) + offline fallback
   paypal_client.py   PayPal sandbox REST client (Payouts, Invoicing, Orders, Webhooks)
   store.py           SQLite store, encrypted PII
   samples.py         Demo documents
@@ -570,7 +575,7 @@ tests/               Unit + end-to-end tests
 
 ## Built with
 
-Python · FastAPI · PayPal REST APIs (sandbox) · Anthropic Claude · Model Context Protocol · AG Grid Community · SQLite ·
+Python · FastAPI · PayPal REST APIs (sandbox) · TypeSafe Jev · Anthropic Claude (optional) · Model Context Protocol · AG Grid Community · SQLite ·
 cryptography (AES-GCM, HKDF) · PyOTP · Postman / Newman · Docker · Render
 
 ## License

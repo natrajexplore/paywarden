@@ -64,6 +64,9 @@ class Settings:
     # AI
     anthropic_api_key: str | None = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     anthropic_model: str = field(default_factory=lambda: _env("ANTHROPIC_MODEL", "claude-opus-5-5"))
+    # TypeSafe Jev decision model (preferred when its key is set). Pin a version, e.g. jev-1.14.0.
+    typesafe_api_key: str | None = field(default_factory=lambda: _env("TYPESAFE_API_KEY"), repr=False)
+    typesafe_model: str = field(default_factory=lambda: _env("TYPESAFE_MODEL", "jev-latest"))
     redaction_level: str = field(default_factory=lambda: (_env("PAYWARDEN_REDACTION", "standard") or "").lower())
 
     # Master keys (one per domain); purpose keys are derived with HKDF in __post_init__
@@ -102,7 +105,13 @@ class Settings:
 
     @property
     def ai_live(self) -> bool:
-        return bool(self.anthropic_api_key)
+        return bool(self.typesafe_api_key or self.anthropic_api_key)
+
+    @property
+    def ai_engine(self) -> str:
+        if self.typesafe_api_key:
+            return f"typesafe:{self.typesafe_model}"
+        return f"claude:{self.anthropic_model}" if self.anthropic_api_key else "offline-extractor"
 
     def validate(self) -> None:
         u = urlsplit(self.paypal_base_url)

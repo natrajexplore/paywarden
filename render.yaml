@@ -16,6 +16,10 @@ services:
         sync: false
       - key: PAYPAL_WEBHOOK_ID
         sync: false
+      - key: TYPESAFE_API_KEY
+        sync: false
+      - key: TYPESAFE_MODEL
+        value: jev-latest
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ANTHROPIC_MODEL

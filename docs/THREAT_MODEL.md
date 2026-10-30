@@ -44,6 +44,8 @@ webhooks → PayWarden.
 | T33 | Spread spending across currencies to multiply the daily mandate | Elevation | One rolling limit in USD equivalent across all currencies |
 | T34 | Rotating fake X-Forwarded-For to dodge per-IP rate limits | DoS / brute force | Client IP taken from the proxy-appended entry (`TRUSTED_PROXY_HOPS`); no wildcard proxy trust |
 | T35 | Timeout after PayPal processed a payout leads to a second payment | Tampering | Unknown outcomes recorded as `UNCERTAIN`, still counted for duplicates/limits; webhooks settle them |
+| T36 | Novel injection phrasing that the regex scanner misses | Tampering · LLM01 | Second, model-based detector: Jev's calibrated manipulation probability (AI-05), layered with provenance and human approval |
+| T37 | AI engine outage or bad key during payment intake | Availability | Fails closed: HTTP 502, nothing proposed, `AGENT_FAILED` audited; never falls back silently |
 
 **Residual risks (accepted for the hackathon):** agent-to-agent orders must be created through
 PayWarden's own PayPal app (PayPal only lets the creating app read and capture an order);

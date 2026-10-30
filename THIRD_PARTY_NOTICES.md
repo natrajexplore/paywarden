@@ -23,6 +23,8 @@ time and are not stored in this repository, except AG Grid, which is vendored (s
 | pyotp | 2.10.0 | MIT | https://github.com/pyauth/pyotp |
 | anthropic | 2.3.0 | Apache-2.0 | https://github.com/anthropics/anthropic-sdk-python |
 | python-dotenv | 1.2.3 | BSD-3-Clause | https://github.com/theskumar/python-dotenv |
+| typesafe-sdk | 0.7.5 | MIT | https://pypi.org/project/typesafe-sdk/ |
+| httpx2, tenacity, truststore, anyio, packaging (via typesafe-sdk) | pinned by pip | BSD-3-Clause / Apache-2.0 / MIT / MIT / Apache-2.0 OR BSD-2-Clause | PyPI |
 
 The Docker image redistributes these packages. Each package's full license text is installed with
 it (in its `*.dist-info` directory in the image's site-packages). Packages under Apache-2.0 are
