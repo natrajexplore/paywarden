@@ -39,6 +39,11 @@ webhooks → PayWarden.
 | T28 | Same order paid twice, or a capture racing a cancel | Tampering / Race | Completed orders refused (409); duplicate rule; idempotent capture; atomic status claim before execution |
 | T29 | Hidden extra purchase unit on a seller's order (quote shows $50, capture pays $9,050) | Tampering | Orders with more than one purchase unit refused at proposal and at capture |
 | T30 | Agent supplies an innocent payee name to dodge sanctions screening | Spoofing | Every labelled party in the document (From/Seller/Vendor/…) is screened, not just the agent's name |
+| T31 | Look-alike payee email that is a substring of the real one (`maya.designs@example.co`) | Spoofing | Payee provenance requires the exact whole email address |
+| T32 | Invoice a mule address once, then auto-pay it as a "known" payee | Elevation | Only executed payouts/orders make a payee known |
+| T33 | Spread spending across currencies to multiply the daily mandate | Elevation | One rolling limit in USD equivalent across all currencies |
+| T34 | Rotating fake X-Forwarded-For to dodge per-IP rate limits | DoS / brute force | Client IP taken from the proxy-appended entry (`TRUSTED_PROXY_HOPS`); no wildcard proxy trust |
+| T35 | Timeout after PayPal processed a payout leads to a second payment | Tampering | Unknown outcomes recorded as `UNCERTAIN`, still counted for duplicates/limits; webhooks settle them |
 
 **Residual risks (accepted for the hackathon):** agent-to-agent orders must be created through
 PayWarden's own PayPal app (PayPal only lets the creating app read and capture an order);

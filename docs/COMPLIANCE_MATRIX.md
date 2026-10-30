@@ -16,14 +16,14 @@ Status legend: **✅ Implemented** in this repo · **🟡 Partial** (demo-grade,
 | ZT-01/02 | Agent identity + least-privilege mandate (action allow-list) — default deny | `policy.py` | ✅ |
 | VAL-01..04 | Strict validation of model output (decimal, precision, currency, email, purpose) | `policy.py` | ✅ |
 | AI-01/02 | Prompt-injection & BEC indicator scan on untrusted documents; quarantine | `injection.py` | ✅ |
-| AI-03/04 | Amount & payee **provenance**: model output must appear verbatim in source | `injection.py` | ✅ |
+| AI-03/04 | Amount & payee **provenance**: model output must appear verbatim in source (payee: exact whole email, not a substring) | `injection.py` | ✅ |
 | AML-01/02 | Fuzzy sanctions screening (block ≥ 0.88, manual review ≥ 0.75) | `policy.py` | 🟡 synthetic list |
 | AML-03 | Blocked payee domains (mule accounts) | `policy.py` | ✅ |
 | AML-04 | Structuring red flag → dual control + SAR-review flag | `policy.py` | ✅ |
 | GEO-01..03 | Comprehensive-sanctions & FATF call-for-action deny; FATF grey list → EDD/dual control | `policy.py`, `data/geo_risk.json` | 🟡 static list |
-| LIM-01..05 | Per-txn auto limit, dual-control limit, hard cap, rolling 24h cap, velocity | `policy.py` | ✅ |
+| LIM-00..05 | Per-txn auto limit, dual-control limit, hard cap, rolling 24h cap (all currencies, USD equivalent via `data/fx_rates.json`), velocity; unknown currency denied | `policy.py` | ✅ (static FX) |
 | DUP-01 | Duplicate payment detection + PayPal-Request-Id idempotency | `policy.py`, `paypal_client.py` | ✅ |
-| BEN-01 | New-beneficiary confirmation (step-up on first payment) | `policy.py` | ✅ |
+| BEN-01 | New-beneficiary confirmation (step-up until a payout/order to that payee has executed; invoices do not count) | `policy.py` | ✅ |
 | TR-01 | Travel-Rule record-keeping flag ≥ USD 3,000 | `policy.py` | 🟡 flag + record only |
 | PCI-01 | Luhn-valid card number (PAN) in a document → DENY; PAN masked everywhere — card data never processed | `policy.py`, `redact.py` | ✅ |
 | REDACT | PII/financial-identifier redaction (`off`/`standard`/`strict`): IBAN, account, routing, SWIFT/BIC, SSN, phone masked; emails (+ party names in strict) pseudonymised before LLM egress and restored locally; notes, AI summaries, reject reasons redacted before storage/audit | `redact.py`, `agent.py`, `store.py` | ✅ |
@@ -38,10 +38,11 @@ Status legend: **✅ Implemented** in this repo · **🟡 Partial** (demo-grade,
 | KEYSEP | HKDF-SHA256 purpose keys (enc / blind-index / audit / binding) from two master keys — no key reused across algorithms | `crypto.py`, `config.py` | ✅ |
 | MASK | PII masked in API/UI; full values never returned | `store.py` | ✅ |
 | AUDIT | Append-only SHA-256 hash chain + HMAC-SHA256 per record; `/api/audit/verify` | `audit.py` | ✅ |
-| WEBHOOK | PayPal webhook signature verified server-side; ±5 min transmission-time window; transmission-ID replay cache; malformed bodies rejected | `paypal_client.py`, `main.py` | ✅ |
+| WEBHOOK | PayPal webhook signature verified server-side; ±5 min transmission-time window; transmission-ID replay cache; malformed bodies rejected; verified payout-item / capture outcomes reconcile payment status | `paypal_client.py`, `main.py` | ✅ |
+| OUTCOME | Unknown PayPal outcomes (timeout, 5xx, malformed success) recorded as `UNCERTAIN`, never assumed failed; still counted for limits and duplicates until reconciled | `main.py` | ✅ |
 | HTTP | HSTS, CSP, XFO, nosniff, Referrer-Policy, COOP, CORP, no-store, sanitised request IDs; API docs disabled outside demo | `middleware.py`, `main.py` | ✅ |
 | SIZE | Request body cap (413), unsized chunked bodies refused (411) | `middleware.py` | ✅ |
-| RATE | Rate limiting per IP **and** per credential; trusted-proxy client IP | `middleware.py` | 🟡 in-memory |
+| RATE | Rate limiting per IP **and** per credential; client IP from the `TRUSTED_PROXY_HOPS`-th X-Forwarded-For entry from the right (client-supplied entries ignored) | `middleware.py` | 🟡 in-memory |
 | SECRETS | Secrets only from env; agent never sees PayPal credentials; strict sandbox host allow-list; `.dockerignore` keeps `.env` out of images | `config.py` | ✅ |
 | FAILSAFE | `PAYWARDEN_DEMO_MODE=false` refuses to start with demo/weak/shared secrets, ephemeral keys, redaction off or wildcard CORS | `config.py` | ✅ |
 | CARD | No card data ever touches PayWarden (PayPal holds PAN) → minimises PCI scope | architecture | ✅ |

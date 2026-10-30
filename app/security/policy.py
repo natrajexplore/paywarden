@@ -36,7 +36,8 @@ ORDER = {"ALLOW": 0, "STEP_UP": 1, "DUAL_CONTROL": 2, "DENY": 3}
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 # Labelled parties in the source document are screened too, so a payee name supplied by the agent
 # ("Goods") cannot hide the real counterparty ("Seller: Darkwave Holdings").
-PARTY_LINE = re.compile(r"(?im)^\s*(?:from|payee|bill from|contractor|vendor|supplier|seller)\s*[:\-]\s*(.+?)\s*$")
+PARTY_LINE = re.compile(rf"(?im)^\s*(?:{redact.PARTY_LABELS})\s*[:\-]\s*(.+?)\s*$")
+PAID_ACTIONS = ("payout", "order")  # money that left us; invoices bill someone else
 
 
 @dataclass
@@ -105,6 +106,11 @@ class PolicyEngine:
         self.mandate = mandate or Mandate()
         self.watchlist = _load("watchlist.json")
         self.geo = _load("geo_risk.json")
+        self.fx = {c: Decimal(str(r)) for c, r in _load("fx_rates.json")["usd_per_unit"].items()}
+
+    def usd(self, amount, currency: str) -> Decimal:
+        """USD equivalent for limit checks. Unknown currencies never reach here (LIM-00 denies)."""
+        return (Decimal(amount) * self.fx.get(currency, Decimal("1E9"))).quantize(Decimal("0.01"))
 
     # ---- screening -------------------------------------------------------
     def screen_name(self, name: str) -> tuple[float, str | None]:
@@ -194,21 +200,28 @@ class PolicyEngine:
         elif cc in self.geo["fatf_increased_monitoring"]:
             d.escalate("DUAL_CONTROL", f"Country {cc} under FATF increased monitoring — EDD", "GEO-03", 35)
 
-        # 7. Limits and mandate
-        if amt > m.hard_txn_limit:
-            d.escalate("DENY", f"Amount exceeds hard limit {m.hard_txn_limit}", "LIM-01", 100)
-        elif amt > m.dual_control_limit:
-            d.escalate("DUAL_CONTROL", f"Amount > {m.dual_control_limit} requires maker-checker", "LIM-02", 30)
-        elif amt > m.per_txn_auto_limit:
-            d.escalate("STEP_UP", f"Amount > {m.per_txn_auto_limit} requires MFA approval", "LIM-03", 15)
+        # 7. Limits and mandate — all in USD equivalent, so 6 currencies cannot mean 6x the mandate
+        if p.currency not in self.fx:
+            d.escalate("DENY", f"No exchange rate for {p.currency}: cannot apply limits", "LIM-00", 100)
+            return d
+        amt_usd = self.usd(p.amount, p.currency)
+        if amt_usd > m.hard_txn_limit:
+            d.escalate("DENY", f"Amount exceeds hard limit USD {m.hard_txn_limit} equivalent", "LIM-01", 100)
+        elif amt_usd > m.dual_control_limit:
+            d.escalate("DUAL_CONTROL", f"Amount > USD {m.dual_control_limit} equivalent requires maker-checker",
+                       "LIM-02", 30)
+        elif amt_usd > m.per_txn_auto_limit:
+            d.escalate("STEP_UP", f"Amount > USD {m.per_txn_auto_limit} equivalent requires MFA approval",
+                       "LIM-03", 15)
 
         now = time.time()
-        committed = ("EXECUTED", "PENDING", "APPROVED", "AWAITING_PAYER", "EXECUTING", "CAPTURE_PENDING")
+        committed = ("EXECUTED", "PENDING", "APPROVED", "AWAITING_PAYER", "EXECUTING", "CAPTURE_PENDING",
+                     "UNCERTAIN")
         day = [h for h in history if now - h["ts"] < 86400 and h["status"] in committed]
         hour = [h for h in day if now - h["ts"] < 3600]
-        day_total = sum((Decimal(h["amount"]) for h in day if h["currency"] == p.currency), Decimal("0"))
-        if day_total + amt > m.daily_limit:
-            d.escalate("DENY", f"Rolling 24h limit {m.daily_limit} {p.currency} would be exceeded",
+        day_total = sum((self.usd(h["amount"], h["currency"]) for h in day), Decimal("0"))
+        if day_total + amt_usd > m.daily_limit:
+            d.escalate("DENY", f"Rolling 24h limit USD {m.daily_limit} equivalent (all currencies) would be exceeded",
                        "LIM-04", 80)
         if len(hour) >= m.max_txn_per_hour:
             d.escalate("STEP_UP", f"Velocity: {len(hour)} payments in the last hour", "LIM-05", 25)
@@ -220,22 +233,24 @@ class PolicyEngine:
             d.escalate("DENY", "Duplicate: same payee and amount within 24h", "DUP-01", 60)
 
         # 9. New beneficiary (banks apply cooling-off / confirmation of payee)
-        known = {h["payee"] for h in history if h["status"] == "EXECUTED"}
+        # Only money we actually *paid* proves a payee: an invoice we sent them proves nothing.
+        known = {h["payee"] for h in history if h["status"] == "EXECUTED" and h.get("action") in PAID_ACTIONS}
         if payee_key not in known:
             d.escalate("STEP_UP", "First payment to this beneficiary — confirm payee", "BEN-01", 15)
 
         # 10. Structuring red flag (splitting to stay under reporting/approval thresholds)
         same_payee_day = [h for h in day if h["payee"] == payee_key]
-        payee_total = sum((Decimal(h["amount"]) for h in same_payee_day), Decimal("0")) + amt
+        payee_total = sum((self.usd(h["amount"], h["currency"]) for h in same_payee_day), Decimal("0")) + amt_usd
         near = [h for h in same_payee_day
-                if m.per_txn_auto_limit * Decimal("0.85") <= Decimal(h["amount"]) <= m.per_txn_auto_limit]
+                if m.per_txn_auto_limit * Decimal("0.85") <= self.usd(h["amount"], h["currency"])
+                <= m.per_txn_auto_limit]
         if (len(same_payee_day) >= 2 and payee_total > m.dual_control_limit) or len(near) >= 2:
             d.escalate("DUAL_CONTROL", "Possible structuring: split payments to one payee near limits",
                        "AML-04", 45)
             d.sar_review = True
 
         # 11. Travel Rule record-keeping (>= USD 3,000 equivalent)
-        if p.currency == "USD" and amt >= Decimal("3000"):
+        if amt_usd >= Decimal("3000"):
             d.travel_rule = True
             d.controls.append("TR-01")
             d.reasons.append("Travel Rule: originator & beneficiary info recorded (>= USD 3,000)")

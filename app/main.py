@@ -32,7 +32,8 @@ _docs = {} if DEMO_MODE else {"docs_url": None, "redoc_url": None, "openapi_url"
 app = FastAPI(title="PayWarden", version="0.2.0",
               description="Zero-trust payment firewall for AI agents on PayPal (sandbox)", **_docs)
 # Starlette runs the last-added middleware first: headers wrap everything, incl. 413/429 responses.
-app.add_middleware(RateLimit, per_minute=int(os.getenv("RATE_LIMIT_PER_MIN", "120")))
+app.add_middleware(RateLimit, per_minute=int(os.getenv("RATE_LIMIT_PER_MIN", "120")),
+                   trusted_hops=int(os.getenv("TRUSTED_PROXY_HOPS", "0")))
 app.add_middleware(BodySizeLimit, max_bytes=settings.max_body_bytes)
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_methods=["GET", "POST"],
                    allow_headers=["Authorization", "Content-Type"], allow_credentials=False)
@@ -147,10 +148,24 @@ async def execute(pid: str, actor: str) -> dict:
                            {"proposal": pid, "action": row["action"], "paypal_ref": ref,
                             "amount": row["amount"], "currency": row["currency"], "mode": paypal.mode})
     except PayPalError as e:
+        if e.status >= 500:  # PayPal may still have processed it: never assume it failed
+            return uncertain(pid, actor, f"http_{e.status}")
         store.update(pid, status="FAILED")
         store.audit.append(actor, "PAYPAL_FAILED", {"proposal": pid, "status": e.status})  # body withheld: may hold PII
         raise HTTPException(502, f"PayPal rejected the request ({e.status})")
+    except HTTPException:
+        raise  # already recorded by settle_order
+    except Exception as e:  # timeout, connection reset, malformed success body …
+        return uncertain(pid, actor, e.__class__.__name__)
     return store.get(pid)
+
+
+def uncertain(pid: str, actor: str, cause: str):
+    """The money may or may not have moved. Keep it counted against limits and duplicate checks
+    (status UNCERTAIN) until a verified PayPal webhook settles it, and tell the caller not to retry."""
+    store.update(pid, status="UNCERTAIN")
+    store.audit.append(actor, "PAYPAL_OUTCOME_UNKNOWN", {"proposal": pid, "cause": cause})
+    raise HTTPException(504, "PayPal outcome unknown: check the PayPal dashboard before retrying")
 
 
 # ---------------------------------------------------------------- routes
@@ -225,7 +240,10 @@ async def decide(raw: dict, source_text: str, summary: str, channel: str, submit
                         "amount": p.amount, "currency": p.currency, "payee": row["payee_masked"],
                         "channel": channel, "submitted_by": submitted_by})
     if decision["verdict"] == "ALLOW":
-        row = await execute(row["id"], "pep:auto")
+        try:
+            row = await execute(row["id"], "pep:auto")
+        except HTTPException:  # recorded as FAILED/UNCERTAIN; keep evaluating the document's other proposals
+            row = store.get(row["id"])
     return row
 
 
@@ -408,6 +426,7 @@ async def capture(pid: str, operator: str = Depends(auth.require_operator)):
     need = auth.required_approvers(verdict)
     if len(row["approvals"]) < need:
         if store.transition(pid, ("AWAITING_PAYER",), "PENDING"):
+            store.update(pid, verdict=verdict)  # UI, agents and later approvals all see the stronger rule
             store.audit.append("pep", "ESCALATED_ON_REEVALUATION", {"proposal": pid, "verdict": verdict})
         return {**store.get(pid), "approvals_required": need}
     return await execute(pid, operator)
@@ -443,6 +462,31 @@ def _fresh(ts: str | None) -> bool:
     return abs(time.time() - t) <= settings.webhook_tolerance_seconds
 
 
+# Final outcomes reported by PayPal. Acceptance of a payout batch or a PENDING capture is not the
+# end: these verified events settle EXECUTED / CAPTURE_PENDING / UNCERTAIN proposals.
+PAYOUT_ITEM_OUTCOME = {"PAYMENT.PAYOUTS-ITEM.SUCCEEDED": "EXECUTED", **{
+    f"PAYMENT.PAYOUTS-ITEM.{s}": "FAILED"
+    for s in ("FAILED", "BLOCKED", "DENIED", "RETURNED", "UNCLAIMED", "CANCELED", "REFUNDED")}}
+CAPTURE_OUTCOME = {"PAYMENT.CAPTURE.COMPLETED": "EXECUTED", "PAYMENT.CAPTURE.DENIED": "FAILED",
+                   "PAYMENT.CAPTURE.DECLINED": "FAILED"}
+SETTLEABLE = ("EXECUTED", "CAPTURE_PENDING", "UNCERTAIN")
+
+
+def reconcile(etype: str, resource: dict) -> None:
+    if etype in PAYOUT_ITEM_OUTCOME:
+        to = PAYOUT_ITEM_OUTCOME[etype]
+        pid = str((resource.get("payout_item") or {}).get("sender_item_id", ""))  # = proposal id
+    elif etype in CAPTURE_OUTCOME:
+        to = CAPTURE_OUTCOME[etype]
+        oid = str(((resource.get("supplementary_data") or {}).get("related_ids") or {}).get("order_id", ""))
+        pid = store.find_by_ref(oid) if oid else None
+    else:
+        return
+    if pid and store.transition(pid, SETTLEABLE, to):
+        store.audit.append("paypal-webhook", "PAYPAL_RECONCILED", {"proposal": pid, "event_type": etype,
+                                                                    "status": to})
+
+
 @app.post("/api/webhooks/paypal")
 async def paypal_webhook(request: Request):
     def reject_hook(reason: str, event_type=None):
@@ -469,4 +513,5 @@ async def paypal_webhook(request: Request):
         return reject_hook("replayed transmission", etype)
     store.audit.append("paypal-webhook", "WEBHOOK_RECEIVED",
                        {"event_type": etype, "id": str(event.get("id", ""))[:80], "verified": True})
+    reconcile(etype, event.get("resource") or {})
     return {"accepted": True}

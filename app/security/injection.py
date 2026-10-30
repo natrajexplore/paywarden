@@ -60,5 +60,10 @@ def amount_grounded(amount: str, source: str) -> bool:
     return target in _amounts_in(source)
 
 
+_EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
 def payee_grounded(email: str, source: str) -> bool:
-    return email.strip().lower() in source.lower()
+    """The exact address must appear as a whole email in the source: 'ya.designs@example.co' is
+    not grounded by 'maya.designs@example.com'."""
+    return email.strip().lower() in {m.lower() for m in _EMAIL.findall(source)}

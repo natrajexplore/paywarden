@@ -5,8 +5,9 @@ Controls mapped: OWASP ASVS v4 V14 (config / headers), V13.1.3 (request size), P
 public-facing web apps), NIST SP 800-53 SC-5 (DoS protection), SC-8 (transmission confidentiality
 via HSTS), AU-3 (request correlation IDs, sanitised against log forging).
 
-Client IP: behind a proxy, run uvicorn with --proxy-headers and FORWARDED_ALLOW_IPS set to the
-proxy's address so request.client reflects the real client, not a spoofable header.
+Client IP: behind N reverse proxies (TRUSTED_PROXY_HOPS=N), the client is the N-th X-Forwarded-For
+entry counted from the right, the one our own proxy appended. Entries further left are supplied by
+the client and are never trusted, so rotating a fake X-Forwarded-For cannot dodge the per-IP limit.
 """
 from __future__ import annotations
 
@@ -81,13 +82,21 @@ class BodySizeLimit(BaseHTTPMiddleware):
 class RateLimit(BaseHTTPMiddleware):
     """Sliding 60s window. A request must pass both its IP bucket and, if it carries a credential,
     that credential's bucket — so a stolen token is throttled even when spread across IPs."""
-    def __init__(self, app, per_minute: int = 120):
+    def __init__(self, app, per_minute: int = 120, trusted_hops: int = 0):
         super().__init__(app)
         self.per_minute = per_minute
+        self.trusted_hops = trusted_hops
         self.hits: dict[str, deque] = defaultdict(deque)
 
+    def client_ip(self, request: Request) -> str:
+        if self.trusted_hops:
+            chain = [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",") if h.strip()]
+            if len(chain) >= self.trusted_hops:
+                return chain[-self.trusted_hops]
+        return request.client.host if request.client else "unknown"
+
     def _keys(self, request: Request) -> list[str]:
-        keys = ["ip:" + (request.client.host if request.client else "unknown")]
+        keys = ["ip:" + self.client_ip(request)]
         auth = request.headers.get("authorization", "")
         if auth:
             keys.append("cred:" + hashlib.sha256(auth.encode()).hexdigest()[:24])

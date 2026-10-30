@@ -142,6 +142,14 @@ webhook replay) with no impact.
 
 **Frameworks:** PCI DSS 6.2–6.3, 6.5 · SOX ITGC change management · DORA Art. 9 · NIST SSDF (SP 800-218).
 
+## 8a. Payment outcome reconciliation
+
+- A payment in `UNCERTAIN` means PayPal timed out or failed after the request was sent. **Never re-pay it
+  from a new proposal.** Check the payout or order in the PayPal dashboard. A verified webhook settles it
+  automatically; otherwise record the outcome in the incident log and reject or close it.
+- Review `CAPTURE_PENDING` and `UNCERTAIN` payments daily; escalate any older than 72 hours.
+- `data/fx_rates.json` (limits in USD equivalent) is reviewed monthly under change management (§8).
+
 ## 9. Logging, monitoring and retention
 
 - The audit log is append-only, hash-chained and HMAC-signed. Free-text fields are redacted before

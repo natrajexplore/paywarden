@@ -17,7 +17,7 @@ from .security import crypto, redact
 from .security.audit import AuditLog
 
 
-UPDATABLE = {"status", "approvals", "paypal_ref"}
+UPDATABLE = {"status", "approvals", "paypal_ref", "verdict"}
 
 
 class Store:
@@ -48,10 +48,15 @@ class Store:
 
     def history(self, agent_id: str, exclude: str | None = None) -> list[dict]:
         rows = self.conn.execute(
-            "SELECT ts, payee_bidx, amount, currency, status FROM proposals WHERE agent_id=? AND id<>?",
+            "SELECT ts, payee_bidx, amount, currency, status, action FROM proposals WHERE agent_id=? AND id<>?",
             (agent_id, exclude or ""),
         ).fetchall()
-        return [{"ts": r[0], "payee": r[1], "amount": r[2], "currency": r[3], "status": r[4]} for r in rows]
+        return [{"ts": r[0], "payee": r[1], "amount": r[2], "currency": r[3], "status": r[4], "action": r[5]}
+                for r in rows]
+
+    def find_by_ref(self, paypal_ref: str) -> str | None:
+        row = self.conn.execute("SELECT id FROM proposals WHERE paypal_ref=?", (paypal_ref,)).fetchone()
+        return row[0] if row else None
 
     def create(self, p, decision: dict, binding_fn, ai_summary: str, paypal_ref: str | None = None) -> dict:
         pid = uuid.uuid4().hex[:16]

@@ -40,6 +40,7 @@ services:
         value: "true"
       - key: ALLOWED_ORIGINS
         sync: false
-      # The container is only reachable through Render's proxy, so its X-Forwarded-For is trusted.
-      - key: FORWARDED_ALLOW_IPS
-        value: "*"
+      # Render's proxy appends the real client IP to X-Forwarded-For; entries to its left are
+      # client-supplied and ignored. Check the header in your logs and adjust if your path has more hops.
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
