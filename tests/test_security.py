@@ -210,12 +210,13 @@ def test_non_demo_mode_refuses_insecure_defaults(monkeypatch):
     from app.config import Settings
     monkeypatch.setenv("PAYWARDEN_DEMO_MODE", "false")
     for k in ("PAYWARDEN_DATA_KEY", "PAYWARDEN_AUDIT_KEY", "OPERATOR_MAKER_TOKEN", "OPERATOR_CHECKER_TOKEN",
-              "OPERATOR_MAKER_TOTP", "OPERATOR_CHECKER_TOTP"):
+              "OPERATOR_MAKER_TOTP", "OPERATOR_CHECKER_TOTP", "PAYWARDEN_AGENT_TOKEN"):
         monkeypatch.delenv(k, raising=False)
     with pytest.raises(RuntimeError) as e:
         Settings().validate()
     msg = str(e.value)
     assert "PAYWARDEN_DATA_KEY" in msg and "OPERATOR_MAKER_TOKEN" in msg and "OPERATOR_CHECKER_TOTP" in msg
+    assert "PAYWARDEN_AGENT_TOKEN" in msg
 
 
 def test_non_demo_mode_accepts_strong_config(monkeypatch):
@@ -227,6 +228,7 @@ def test_non_demo_mode_accepts_strong_config(monkeypatch):
     for op in ("MAKER", "CHECKER"):
         monkeypatch.setenv(f"OPERATOR_{op}_TOKEN", os.urandom(24).hex())
         monkeypatch.setenv(f"OPERATOR_{op}_TOTP", pyotp.random_base32(32))
+    monkeypatch.setenv("PAYWARDEN_AGENT_TOKEN", os.urandom(24).hex())
     Settings().validate()
 
 

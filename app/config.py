@@ -28,6 +28,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Public demo values (documented in README for judges). Refused when demo mode is off.
 DEMO_TOKENS = {"maker": "demo-maker-token", "checker": "demo-checker-token"}
 DEMO_TOTP = {"maker": "JBSWY3DPEHPK3PXP", "checker": "KRSXG5CTMVRXEZLU"}
+DEMO_AGENT_TOKEN = "demo-agent-token"
 PAYPAL_SANDBOX_HOSTS = {"api-m.sandbox.paypal.com", "api.sandbox.paypal.com"}
 
 
@@ -74,6 +75,8 @@ class Settings:
         op: _env(f"OPERATOR_{op.upper()}_TOKEN", DEMO_TOKENS[op]) for op in DEMO_TOKENS}, repr=False)
     operator_totp: dict = field(default_factory=lambda: {
         op: _env(f"OPERATOR_{op.upper()}_TOTP", DEMO_TOTP[op]) for op in DEMO_TOTP}, repr=False)
+    # External AI agents (e.g. via the MCP server): propose-only credential, never an operator.
+    agent_token: str = field(default_factory=lambda: _env("PAYWARDEN_AGENT_TOKEN", DEMO_AGENT_TOKEN), repr=False)
     mfa_max_failures: int = field(default_factory=lambda: int(_env("MFA_MAX_FAILURES", "5")))
     mfa_lockout_seconds: int = field(default_factory=lambda: int(_env("MFA_LOCKOUT_SECONDS", "900")))
 
@@ -123,6 +126,10 @@ class Settings:
                 problems.append(f"OPERATOR_{op.upper()}_TOTP must be a non-demo base32 seed (>= 160 bits)")
         if len(set(self.operator_tokens.values())) != len(self.operator_tokens):
             problems.append("maker and checker tokens must differ (segregation of duties)")
+        if self.agent_token == DEMO_AGENT_TOKEN or len(self.agent_token) < 32:
+            problems.append("PAYWARDEN_AGENT_TOKEN must be a non-demo secret of >= 32 chars")
+        if self.agent_token in self.operator_tokens.values():
+            problems.append("PAYWARDEN_AGENT_TOKEN must differ from every operator token")
         if len(set(self.operator_totp.values())) != len(self.operator_totp):
             problems.append("maker and checker TOTP seeds must differ (segregation of duties)")
         if self.redaction_level == "off":

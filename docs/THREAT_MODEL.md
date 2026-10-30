@@ -32,6 +32,8 @@ webhooks → PayWarden.
 | T21 | Production deploy left on demo secrets / ephemeral keys | Misconfiguration | Fail-closed startup when demo mode is off |
 | T22 | Secrets baked into the container image | Information disclosure | `.dockerignore` excludes `.env`, DB, venv, git |
 | T23 | Look-alike PayPal host (`…sandbox.paypal.com.evil.io`) | Spoofing | Exact HTTPS host allow-list |
+| T24 | Third-party agent (via MCP) is prompt-injected and tries to pay an attacker or approve its own payment | Elevation · LLM06 | Propose-only agent credential (no approve tool; operator routes refuse it); source document required for provenance; same policy as every channel; humans approve above mandate |
+| T25 | MCP server sends the agent token over plain HTTP | Information disclosure | MCP server refuses `http://` except to localhost |
 
 **Residual risks (accepted for the hackathon):** static bearer tokens instead of SSO + FIDO2;
 ephemeral keys in demo mode; in-memory rate limiter, MFA lockout and replay state (reset on

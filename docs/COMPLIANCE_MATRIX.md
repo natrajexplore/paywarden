@@ -28,6 +28,7 @@ Status legend: **✅ Implemented** in this repo · **🟡 Partial** (demo-grade,
 | PCI-01 | Luhn-valid card number (PAN) in a document → DENY; PAN masked everywhere — card data never processed | `policy.py`, `redact.py` | ✅ |
 | REDACT | PII/financial-identifier redaction (`off`/`standard`/`strict`): IBAN, account, routing, SWIFT/BIC, SSN, phone masked; emails (+ party names in strict) pseudonymised before LLM egress and restored locally; notes, AI summaries, reject reasons redacted before storage/audit | `redact.py`, `agent.py`, `store.py` | ✅ |
 | IDENT | One credential per operator; identity derived from the credential, never the request body | `auth.py`, `main.py` | ✅ |
+| AGENT | External AI agents (MCP) get a propose-only credential: refused on approve/reject/audit/demo-code routes; minimal proposal view; same PDP path and provenance checks; channel recorded in audit | `auth.py`, `main.py`, `paywarden_mcp/` | ✅ |
 | MFA | RFC 6238 TOTP step-up per approval; each time-step single-use (replay-proof); lockout after 5 consecutive failures | `auth.py` | ✅ |
 | 4-EYES | Maker-checker: two distinct authenticated operators for DUAL_CONTROL | `main.py` | ✅ |
 | DYN-LINK | Approval bound by full HMAC-SHA256 (dedicated key) to amount + currency + payee; checked before the OTP is consumed | `auth.py` | ✅ |
