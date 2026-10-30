@@ -107,6 +107,37 @@ function showDetail(p) {
   const need = p.verdict === "DUAL_CONTROL" ? 2 : 1;
   $("approve-msg").textContent = pending ? `Approvals: ${p.approvals.length}/${need}` +
     (need === 2 ? " — maker and checker must be different people" : "") : "";
+  const waiting = p.status === "AWAITING_PAYER", link = payerLinks[p.id];
+  $("order-box").hidden = !waiting;
+  $("d-payer").hidden = !link;
+  if (link) $("d-payer").href = link;
+  if (waiting && !link) $("order-msg").textContent = "Click Capture now to re-check PayPal and get the approval link.";
+}
+
+// Agent-to-agent orders: PayPal returns the payer's approval link; only ever link to PayPal itself.
+const payerLinks = {};
+const SAFE_PAYPAL = /^https:\/\/www\.(sandbox\.)?paypal\.com\//;
+function rememberPayerLink(r) {
+  if (r && r.id && typeof r.payer_action_url === "string" && SAFE_PAYPAL.test(r.payer_action_url)) {
+    payerLinks[r.id] = r.payer_action_url;
+  }
+}
+
+async function capture() {
+  try {
+    const r = await api(`/api/proposals/${current.id}/capture`, { method: "POST", body: "{}" }, $("op2").value);
+    rememberPayerLink(r);
+    await refresh();
+    $("order-msg").textContent = r.status === "EXECUTED" ? "Captured on PayPal."
+      : "The payer has not approved yet. Open the PayPal link, then capture again.";
+  } catch (e) { await refresh().catch(() => {}); $("order-msg").textContent = "✖ " + e.message; }
+}
+
+async function cancelOrder() {
+  try {
+    await api(`/api/proposals/${current.id}/reject`, { method: "POST", body: JSON.stringify({ reason: "order cancelled by operator" }) }, $("op2").value);
+    await refresh();
+  } catch (e) { $("order-msg").textContent = "✖ " + e.message; }
 }
 
 async function run() {
@@ -130,6 +161,7 @@ async function approve(ev) {
       body: JSON.stringify({ totp: $("totp").value.trim(), binding: current.binding }),
     }, $("op").value);
     $("totp").value = "";
+    rememberPayerLink(r);
     if (r.status === "AWAITING_SECOND_APPROVER") {
       msg.textContent = `Approved ${r.approvals}/${r.required}. Switch to the other operator to co-sign.`;
       $("op").value = $("op").value === "maker" ? "checker" : "maker";
@@ -167,6 +199,8 @@ async function boot() {
   $("approve").addEventListener("submit", approve);
   $("reject").addEventListener("click", reject);
   $("fill").addEventListener("click", fillDemo);
+  $("capture").addEventListener("click", capture);
+  $("cancel-order").addEventListener("click", cancelOrder);
   $("b-audit").addEventListener("click", verifyChain);
   await refresh();
 }

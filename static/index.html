@@ -77,6 +77,17 @@
         </div>
         <p id="approve-msg" class="small"></p>
       </form>
+      <div id="order-box" class="order-box" hidden>
+        <h3>Waiting for the payer</h3>
+        <p class="muted small">Approved in PayWarden. PayPal captures an order only after the payer approves it in PayPal.</p>
+        <p class="small"><a id="d-payer" target="_blank" rel="noopener noreferrer" hidden>Open the PayPal approval page ↗</a></p>
+        <div class="row">
+          <select id="op2" title="Acts with this operator's token"><option value="maker">as maker</option><option value="checker">as checker</option></select>
+          <button type="button" id="capture" class="primary">Capture now</button>
+          <button type="button" id="cancel-order" class="danger">Cancel</button>
+        </div>
+        <p id="order-msg" class="small"></p>
+      </div>
     </div>
   </aside>
 
