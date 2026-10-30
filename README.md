@@ -174,4 +174,4 @@ cryptography (AES-GCM) · PyOTP · Docker · Render
 
 ## License
 
-[MIT](LICENSE) © 2026 Nataraj Angappan
+[MIT](LICENSE) © 2026 Nataraj Angappan · Third-party components: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
