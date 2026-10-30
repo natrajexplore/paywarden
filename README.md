@@ -32,7 +32,7 @@ Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) (Pay
 - [Security architecture](#security-architecture)
 - [Configuration](#configuration)
 - [Deploy to Render](#deploy-to-render)
-- [API](#api) · [API walkthrough](#api-walkthrough-curl)
+- [API](#api) · [Postman collection](#postman-collection) · [API walkthrough](#api-walkthrough-curl)
 - [Troubleshooting](#troubleshooting)
 - [Tests](#tests) · [Project layout](#project-layout)
 - [Limitations and roadmap](#limitations-and-roadmap)
@@ -381,6 +381,29 @@ rejections are attributed to the operator who owns the token. The agent token
 
 Interactive docs at `/docs` (demo mode only).
 
+### Postman collection
+
+[`postman/`](postman/) holds a self-checking collection: **27 requests, 65 assertions** covering a
+STEP-UP payout, dual control, four attacks being denied, security controls (missing token, agent
+token on operator routes, tampered binding, reused TOTP code), the MCP agent channel and audit-chain
+verification. Each step stores IDs, binding codes and TOTP codes for the next, so it runs in one click.
+
+1. In Postman: **Import** `postman/PayWarden.postman_collection.json` and
+   `postman/PayWarden-local.postman_environment.json`, then select the **PayWarden — local** environment.
+2. Start PayWarden in demo mode, then use **Run collection**. For a Render deployment, duplicate the
+   environment and change `baseUrl`.
+
+Or from the command line with [Newman](https://www.npmjs.com/package/newman):
+
+```bash
+npx newman@6.2.3 run postman/PayWarden.postman_collection.json \
+  -e postman/PayWarden-local.postman_environment.json
+```
+
+A run takes under a minute: folders 1 and 2 each wait for a fresh 30-second TOTP window, because
+codes are single-use. Amounts and payees are randomised per run, so re-runs don't trip the
+duplicate-payment control. CI runs the collection on every push.
+
 ### API walkthrough (curl)
 
 ```bash
@@ -429,7 +452,7 @@ bandit -q -r app paywarden_mcp -ll                     # SAST
 pip-audit -r requirements.txt -r requirements-mcp.txt  # known-CVE scan
 ```
 
-CI runs all three on every push and pull request; any finding fails the build.
+CI runs these plus the [Postman collection](#postman-collection) (via Newman) on every push and pull request; any failure or finding fails the build.
 
 ## Project layout
 
@@ -450,6 +473,7 @@ app/
     redact.py        PII / financial-identifier redaction and LLM pseudonymisation
     middleware.py    Security headers, body-size limit, rate limiting
 paywarden_mcp/       MCP server (stdio): propose-only firewall access for any MCP agent
+postman/             Postman collection + environment (self-checking API tour)
 static/              Dashboard (AG Grid Community)
 data/                Synthetic watchlist, FATF/sanctions geo data
 docs/                Goals, compliance matrix, threat model, security procedures, demo script, Devpost draft
@@ -483,7 +507,7 @@ tests/               Unit + end-to-end tests
 ## Built with
 
 Python · FastAPI · PayPal REST APIs (sandbox) · Anthropic Claude · Model Context Protocol · AG Grid Community · SQLite ·
-cryptography (AES-GCM, HKDF) · PyOTP · Docker · Render
+cryptography (AES-GCM, HKDF) · PyOTP · Postman / Newman · Docker · Render
 
 ## License
 

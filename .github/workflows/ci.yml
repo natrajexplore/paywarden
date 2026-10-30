@@ -16,3 +16,8 @@ jobs:
         run: bandit -q -r app paywarden_mcp -ll
       - name: Dependency vulnerability audit (known CVEs fail the build)
         run: pip-audit -r requirements.txt -r requirements-mcp.txt
+      - name: API tests (Postman collection via Newman)
+        run: |
+          PAYWARDEN_DB=/tmp/newman.db uvicorn app.main:app --port 8000 &
+          for i in $(seq 1 30); do curl -sf localhost:8000/healthz >/dev/null && break; sleep 1; done
+          npx --yes newman@6.2.3 run postman/PayWarden.postman_collection.json -e postman/PayWarden-local.postman_environment.json
