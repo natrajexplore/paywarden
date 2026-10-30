@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PayWarden — Zero-Trust Payment Firewall for AI Agents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+<!-- AG Grid Community 33.3.2 (MIT), vendored: no third-party CDN at runtime -->
+<script src="/static/vendor/ag-grid-community.min.js"></script>
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><path d="M16 2 4 7v8c0 7.5 5.1 13.4 12 15 6.9-1.6 12-7.5 12-15V7L16 2Z" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m11 16 3.5 3.5L21.5 12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div><strong>PayWarden</strong><span>Zero-trust payment firewall for AI agents · PayPal sandbox</span></div>
+  </div>
+  <div class="badges">
+    <span class="badge" id="b-paypal">PayPal: …</span>
+    <span class="badge" id="b-ai">AI: …</span>
+    <button class="badge btn-link" id="b-audit" title="Verify the hash chain">Audit chain: …</button>
+    <label class="token">Maker token <input id="tok-maker" type="password" autocomplete="off"></label>
+    <label class="token">Checker token <input id="tok-checker" type="password" autocomplete="off"></label>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="panel intake">
+    <h2>1 · Incoming document <small>untrusted</small></h2>
+    <label for="sample">Demo scenario</label>
+    <select id="sample"></select>
+    <textarea id="doc" spellcheck="false" placeholder="Paste an invoice, statement of work or 'job done' message…"></textarea>
+    <button id="run" class="primary">Run AI agent → policy check</button>
+    <div id="summary" class="summary" hidden></div>
+    <div class="flow">
+      <div><b>AI agent</b> reads & proposes — holds <em>no</em> PayPal keys</div>
+      <div><b>Policy engine</b> injection · provenance · mandate · sanctions · AML</div>
+      <div><b>Human</b> TOTP step-up · maker-checker</div>
+      <div><b>PayPal</b> Payouts · Invoicing · Webhooks</div>
+    </div>
+  </section>
+
+  <section class="panel queue">
+    <h2>2 · Payment proposals <small>every money movement passes the firewall</small></h2>
+    <div id="grid" class="grid"></div>
+  </section>
+
+  <aside class="panel detail" id="detail">
+    <h2>3 · Decision</h2>
+    <p class="muted" id="empty">Select a proposal to see why the firewall decided what it did.</p>
+    <div id="d-body" hidden>
+      <div class="verdict" id="d-verdict"></div>
+      <dl class="kv">
+        <dt>Action</dt><dd id="d-action"></dd>
+        <dt>Payee</dt><dd id="d-payee"></dd>
+        <dt>Amount</dt><dd id="d-amount"></dd>
+        <dt>Risk</dt><dd><div class="risk"><i id="d-riskbar"></i></div><span id="d-risk"></span></dd>
+        <dt>PayPal ref</dt><dd id="d-ref" class="mono"></dd>
+      </dl>
+      <h3>Why</h3>
+      <ul id="d-reasons" class="reasons"></ul>
+      <div id="d-flags" class="flags"></div>
+      <form id="approve" hidden>
+        <h3>Approve with MFA</h3>
+        <p class="muted small">You are signing exactly this amount and payee. Binding code:
+          <code id="d-binding"></code></p>
+        <div class="row">
+          <select id="op" title="Signs with this operator's token"><option value="maker">as maker</option><option value="checker">as checker</option></select>
+          <input id="totp" inputmode="numeric" maxlength="8" placeholder="6-digit code" autocomplete="one-time-code">
+          <button type="button" id="fill" class="ghost" title="Demo mode only">demo code</button>
+        </div>
+        <div class="row">
+          <button type="submit" class="primary">Approve</button>
+          <button type="button" id="reject" class="danger">Reject</button>
+        </div>
+        <p id="approve-msg" class="small"></p>
+      </form>
+    </div>
+  </aside>
+
+  <section class="panel audit">
+    <h2>4 · Tamper-evident audit trail <small>SHA-256 hash chain + HMAC signature on every record</small></h2>
+    <div id="audit-grid" class="grid short"></div>
+  </section>
+</main>
+<footer>Hackathon build · PayPal <b>sandbox</b> only · Synthetic sanctions data · Not a certified compliance product</footer>
+</body>
+</html>

@@ -1,0 +1,43 @@
+# One-click deploy on Render (Blueprint). Secrets are set in the Render dashboard, never committed.
+# Hosted judge demo runs in demo mode (sandbox only). For any other deployment set
+# PAYWARDEN_DEMO_MODE=false and fill every sync:false secret — the app refuses to start otherwise.
+services:
+  - type: web
+    name: paywarden
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: PAYPAL_BASE_URL
+        value: https://api-m.sandbox.paypal.com
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-5-5
+      - key: PAYWARDEN_REDACTION
+        value: standard
+      - key: PAYWARDEN_DATA_KEY
+        sync: false
+      - key: PAYWARDEN_AUDIT_KEY
+        sync: false
+      - key: OPERATOR_MAKER_TOKEN
+        sync: false
+      - key: OPERATOR_CHECKER_TOKEN
+        sync: false
+      - key: OPERATOR_MAKER_TOTP
+        sync: false
+      - key: OPERATOR_CHECKER_TOTP
+        sync: false
+      - key: PAYWARDEN_DEMO_MODE
+        value: "true"
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # The container is only reachable through Render's proxy, so its X-Forwarded-For is trusted.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
