@@ -262,6 +262,19 @@ def test_webhook_settles_payout_outcome(monkeypatch):
     assert c.get(f"/api/proposals/{p['id']}", headers=H).json()["status"] == "FAILED"
 
 
+def test_webhook_unclaimed_payout_stays_executed(monkeypatch):
+    """UNCLAIMED is not final: the payee has 30 days to claim; only RETURNED fails it."""
+    _verified(monkeypatch)
+    p = analyse(doc="INVOICE WH-U\nFrom: Webhook Test\nEmail: wh.unclaimed@example.com\nTotal due: $68.00 USD")
+    assert approve(p, MAKER, codes()["maker"]).json()["status"] == "EXECUTED"
+    item = {"payout_item": {"sender_item_id": p["id"]}}
+    assert _hook({"event_type": "PAYMENT.PAYOUTS-ITEM.UNCLAIMED", "resource": item}, "T-WH-U1").status_code == 200
+    assert c.get(f"/api/proposals/{p['id']}", headers=H).json()["status"] == "EXECUTED"
+    assert any(e["action"] == "PAYOUT_UNCLAIMED" for e in c.get("/api/audit", headers=H).json())
+    assert _hook({"event_type": "PAYMENT.PAYOUTS-ITEM.RETURNED", "resource": item}, "T-WH-U2").status_code == 200
+    assert c.get(f"/api/proposals/{p['id']}", headers=H).json()["status"] == "FAILED"
+
+
 def test_webhook_resolves_uncertain_and_pending_capture(monkeypatch):
     _verified(monkeypatch)
     p = analyse(doc="INVOICE WH-2\nFrom: Webhook Test\nEmail: wh.ok@example.com\nTotal due: $67.00 USD")

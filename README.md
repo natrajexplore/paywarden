@@ -133,7 +133,7 @@ until every one of them is replaced with a strong secret (see `.env.example`).
 |---|---|---|
 | Freelancer, first payment $850 | **STEP-UP** → approve with TOTP → PayPal payout | BEN-01 |
 | Same freelancer, $420 follow-up | **ALLOW** → executes automatically | within mandate |
-| Consulting milestone $7,200 | **DUAL CONTROL**: maker *and* checker | LIM-02, TR-01 |
+| Consulting milestone $5,600 | **DUAL CONTROL**: maker *and* checker | LIM-02, TR-01 |
 | Prompt-injected invoice | **DENY**: quarantined | AI-01 |
 | Vendor on sanctions list (synthetic) | **DENY** | AML-01/03 |
 | Contractor in FATF call-for-action country | **DENY** | GEO-02 |

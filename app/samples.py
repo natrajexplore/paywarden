@@ -29,14 +29,14 @@ PayPal: maya.designs@example.com""",
     },
     {
         "id": "high-value",
-        "title": "Consulting milestone $7,200 (expect DUAL CONTROL + Travel Rule)",
+        "title": "Consulting milestone $5,600 (expect DUAL CONTROL + Travel Rule)",
         "document": """STATEMENT OF WORK — MILESTONE 2 COMPLETE
 Contractor: Rao Cloud Consulting LLC
 Email: billing@raocloud.example.com
 Country: US
 
 Zero-trust network migration, phase 2 (80 hours)
-Amount due: USD 7,200.00
+Amount due: USD 5,600.00
 Remit by PayPal to billing@raocloud.example.com within 15 days.""",
     },
     {

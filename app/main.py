@@ -471,13 +471,21 @@ def _fresh(ts: str | None) -> bool:
 # end: these verified events settle EXECUTED / CAPTURE_PENDING / UNCERTAIN proposals.
 PAYOUT_ITEM_OUTCOME = {"PAYMENT.PAYOUTS-ITEM.SUCCEEDED": "EXECUTED", **{
     f"PAYMENT.PAYOUTS-ITEM.{s}": "FAILED"
-    for s in ("FAILED", "BLOCKED", "DENIED", "RETURNED", "UNCLAIMED", "CANCELED", "REFUNDED")}}
+    for s in ("FAILED", "BLOCKED", "DENIED", "RETURNED", "CANCELED", "REFUNDED")}}
+# Not final: the money was sent and waits up to 30 days for the payee to claim it; PayPal sends
+# RETURNED if it never is. The proposal stays EXECUTED and the wait is recorded.
+PAYOUT_UNCLAIMED = "PAYMENT.PAYOUTS-ITEM.UNCLAIMED"
 CAPTURE_OUTCOME = {"PAYMENT.CAPTURE.COMPLETED": "EXECUTED", "PAYMENT.CAPTURE.DENIED": "FAILED",
                    "PAYMENT.CAPTURE.DECLINED": "FAILED"}
 SETTLEABLE = ("EXECUTED", "CAPTURE_PENDING", "UNCERTAIN")
 
 
 def reconcile(etype: str, resource: dict) -> None:
+    if etype == PAYOUT_UNCLAIMED:
+        pid = str((resource.get("payout_item") or {}).get("sender_item_id", ""))
+        if pid and store.get(pid):
+            store.audit.append("paypal-webhook", "PAYOUT_UNCLAIMED", {"proposal": pid})
+        return
     if etype in PAYOUT_ITEM_OUTCOME:
         to = PAYOUT_ITEM_OUTCOME[etype]
         pid = str((resource.get("payout_item") or {}).get("sender_item_id", ""))  # = proposal id
