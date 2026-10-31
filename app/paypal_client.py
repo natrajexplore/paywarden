@@ -139,7 +139,13 @@ class PayPalClient:
                 "amount": {"currency_code": currency, "value": amount}}
         if payee_email:
             unit["payee"] = {"email_address": payee_email}
-        body = {"intent": "CAPTURE", "purchase_units": [unit]}
+        # Without a return page and with shipping requested, sandbox checkout fails ("Things don't
+        # appear to be working"); the buyer approves and is sent back to the dashboard.
+        home = settings.allowed_origins[0].rstrip("/") + "/"
+        body = {"intent": "CAPTURE", "purchase_units": [unit],
+                "payment_source": {"paypal": {"experience_context": {
+                    "return_url": home, "cancel_url": home,
+                    "shipping_preference": "NO_SHIPPING", "user_action": "PAY_NOW"}}}}
         if not self.live:
             oid = f"MOCK-ORDER-{uuid.uuid4().hex[:10].upper()}"
             self._mock_orders[oid] = {"id": oid, "status": "APPROVED", "purchase_units": [unit], "links": [],
