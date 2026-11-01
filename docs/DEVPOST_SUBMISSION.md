@@ -63,7 +63,7 @@ Per-agent mandates for MCP clients; PayPal partner onboarding so sellers can cre
 ## Links
 - Repo: https://github.com/natrajexplore/paywarden (MIT)
 - Demo video: <YouTube link>
-- Hosted demo: <Render URL> · tokens `demo-maker-token` / `demo-checker-token` (operators), `demo-agent-token` (MCP agent), demo TOTP button enabled
+- Hosted demo: https://paywarden-w7zr.onrender.com (free plan: the first request after idle can take about a minute) · tokens `demo-maker-token` / `demo-checker-token` (operators), `demo-agent-token` (MCP agent), demo TOTP button enabled
 - Postman collection: `postman/` in the repo (import the collection + environment, then Run)
 
 ## "Significantly updated" note
