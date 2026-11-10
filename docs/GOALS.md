@@ -60,7 +60,7 @@ financial control or failing an audit.
 
 | # | Must-have (Stage-1 pass + core score) | Status |
 |---|---|---|
-| G1 | Real PayPal **sandbox** integration: OAuth2, Payouts, Invoicing (create + send), Orders, Webhook signature verification | done in code (Orders: get + capture for agent-to-agent); **live on Render (1 Nov):** Payouts executed in sandbox (single approval + maker/checker dual control), signed `PAYMENT.PAYOUTS-ITEM.UNCLAIMED` webhook received and verified, proposal kept EXECUTED (PR #15); Orders checkout error fixed with `experience_context` (PR #14), **re-test of payer approval + capture pending**; Invoicing send not yet confirmed live |
+| G1 | Real PayPal **sandbox** integration: OAuth2, Payouts, Invoicing (create + send), Orders, Webhook signature verification | done in code (Orders: get + capture for agent-to-agent); **live on Render (1 Nov):** Payouts executed in sandbox (single approval + maker/checker dual control), signed `PAYMENT.PAYOUTS-ITEM.UNCLAIMED` webhook received and verified, proposal kept EXECUTED (PR #15); Orders checkout error fixed with `experience_context` (PR #14), **payer approval + capture verified live on Render (capture `1LE551764J391894H` COMPLETED)**; Invoicing send not yet confirmed live |
 | G2 | AI is central: an AI agent reads unstructured invoices, extracts payee/amount, proposes PayPal actions | done in code: TypeSafe Jev (primary) or Claude, with PII redaction; **TypeSafe Jev verified live** on all six dashboard samples (local run, 31 Oct); live Claude run pending (optional fallback) |
 | G3 | Agent never holds PayPal credentials — all actions pass the Policy Enforcement Point | done in code |
 | G4 | Controls: spend mandates, velocity, sanctions screening, structuring detection, injection defence, duplicates | done + hardened (PCI-01, redaction, fail-closed config) |
@@ -68,14 +68,14 @@ financial control or failing an audit.
 | G6 | Tamper-evident audit log with `/api/audit/verify` | done in code |
 | G7 | Polished dashboard (AG Grid) — complete product experience | done in code; browser click-through pending |
 | G8 | Public GitHub repo with MIT LICENSE visible in About, full run instructions, `.env.example` | done — public, MIT detected, CI green |
-| G9 | Runs for judges with **zero keys** (mock mode) *and* with sandbox keys (live mode) | mock mode verified; **live sandbox mode verified on Render** (https://paywarden-w7zr.onrender.com): all six scenario verdicts correct, payouts executed, webhooks verified, audit chain valid; Orders payer approval still to re-test (see G1) |
+| G9 | Runs for judges with **zero keys** (mock mode) *and* with sandbox keys (live mode) | mock mode verified; **live sandbox mode verified on Render** (https://paywarden-w7zr.onrender.com): all six scenario verdicts correct, payouts executed, webhooks verified, audit chain valid; agent-to-agent Orders captured live |
 | G10 | < 3 min YouTube demo, public, no copyrighted music | to record |
 
 | Stretch (prize multipliers) | Prize targeted |
 |---|---|
 | S1 Deploy on Render (render.yaml included) → hosted demo URL — **done** (https://paywarden-w7zr.onrender.com) | Best Use of Render |
 | S2 AG Grid risk dashboard with row grouping/conditional styling | Best Use of AG Grid |
-| S3 Agent-to-agent payment flow (buyer agent ⇄ seller agent settle via Orders) — **done** (`pay_order`; mock-verified, live payer approval pending) | Best Use of Agentic Commerce |
+| S3 Agent-to-agent payment flow (buyer agent ⇄ seller agent settle via Orders) — **done** (`pay_order`; verified live in sandbox: seller order → agent pay-order → checker MFA → buyer approval → capture COMPLETED) | Best Use of Agentic Commerce |
 | S4 Expose PayWarden as an MCP server so *any* agent (Claude Desktop, Cursor) gets the firewall — **done** (`paywarden_mcp/`, propose-only) | Most Creative / Best PayPal + AI |
 | S5 Postman collection for the API — **done** (`postman/`, 34 requests / 78 assertions, runs in CI via Newman) | Postman ecosystem |
 
@@ -94,7 +94,7 @@ financial control or failing an audit.
 | Date | Milestone |
 |---|---|
 | Fri 30 Oct | ✅ Rules analysed, idea locked, scaffold + security engine + tests; also landed early: MCP server, Postman/Newman CI, agent-to-agent Orders, TypeSafe Jev engine, two review-fix rounds (PRs #1–#13) |
-| Sat 31 Oct – Sun 1 Nov | 🟡 Sandbox app + live mode; deployed to Render 1 Nov and verified live. Fixed from live findings: Orders checkout `experience_context` (PR #14); UNCLAIMED payouts stay EXECUTED, dual-control sample lowered $7,200 → $5,600 after a PayPal 422 (PR #15). **Still to do:** re-test Orders payer approval + capture, confirm Invoicing send end-to-end |
+| Sat 31 Oct – Sun 1 Nov | 🟡 Sandbox app + live mode; deployed to Render 1 Nov and verified live. Fixed from live findings: Orders checkout `experience_context` (PR #14); UNCLAIMED payouts stay EXECUTED, dual-control sample lowered $7,200 → $5,600 after a PayPal 422 (PR #15). Agent-to-agent Orders verified live on Render. **Still to do:** confirm Invoicing send end-to-end |
 | Mon 2 – Wed 4 Nov | AI prompt tuning on 10 realistic invoices (incl. 3 malicious); webhook endpoint public via Render |
 | Thu 5 – Sat 7 Nov | ~~Stretch: MCP server + agent-to-agent flow~~ (done 30 Oct); dashboard polish + browser click-through (G7) |
 | Sun 8 Nov | ~~Deploy to Render~~ (done 1 Nov); full judge dry-run from a clean machine using README only |
