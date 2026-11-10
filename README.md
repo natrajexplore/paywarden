@@ -565,8 +565,7 @@ tests/               Unit + end-to-end tests
 **Roadmap**
 
 1. Per-agent mandates, so each MCP client gets its own limits and credential.
-2. Live sandbox verification of the payer-approval step for agent-to-agent Orders, and PayPal
-   partner onboarding so sellers can use their own PayPal apps.
+2. PayPal partner onboarding so sellers can use their own PayPal apps.
 3. Official OFAC SDN / UN / EU list ingestion with transliteration-aware matching.
 4. OIDC/SAML SSO with FIDO2/WebAuthn and role-based access.
 5. Keys in a KMS/HSM with envelope encryption and rotation.
